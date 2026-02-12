@@ -1,0 +1,20 @@
+meta {
+  name: Commune
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://api.francetravail.io/partenaire/offresdemploi/v2/referentiel/communes
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Accept: application/json
+}
+
+docs {
+  https://francetravail.io/produits-partages/catalogue/offres-emploi/documentation#/api-reference/schemas/Offre
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Offre Detail
+  type: http
+  seq: 2
+}
+
+get {
+  url: https://api.francetravail.io/partenaire/offresdemploi/v2/offres/203TKSH
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{ACCESS_TOKEN}}
+  Accept: application/json
+}
+
+docs {
+  https://francetravail.io/produits-partages/catalogue/offres-emploi/documentation#/api-reference/schemas/Offre
+}
