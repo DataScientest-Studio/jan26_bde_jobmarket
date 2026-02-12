@@ -1,0 +1,27 @@
+meta {
+  name: OAuth
+  type: http
+  seq: 1
+}
+
+post {
+  url: https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire&grant_type=client_credentials&client_id={{API_ID}}&client_secret={{API_SECRET}}&scope=api_offresdemploiv2 o2dsoffre
+  body: none
+  auth: none
+}
+
+params:query {
+  realm: /partenaire
+  grant_type: client_credentials
+  client_id: {{API_ID}}
+  client_secret: {{API_SECRET}}
+  scope: api_offresdemploiv2 o2dsoffre
+}
+
+headers {
+  Content-Type: application/x-www-form-urlencoded
+}
+
+docs {
+  https://francetravail.io/produits-partages/documentation/utilisation-api-france-travail/client-credentials
+}
