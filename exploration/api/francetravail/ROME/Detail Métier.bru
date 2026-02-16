@@ -1,0 +1,15 @@
+meta {
+  name: Detail Métier
+  type: http
+  seq: 2
+}
+
+get {
+  url: https://api.francetravail.io/partenaire/rome-metiers/v1/metiers/metier/K2107
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{ACCESS_TOKEN}}
+}
