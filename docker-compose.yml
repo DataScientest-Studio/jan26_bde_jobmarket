@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -lc "
+      mc alias set jobmarket http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
+      mc mb -p jobmarket/jobmarket || true &&
+      echo '✅ Bucket ready: jobmarket'
+      "
+    restart: "no"
+
+  jupyter:
+    build: .
+    image: jupyter/scipy-notebook:python-3.11
+    container_name: jobmarket-jupyter
+    depends_on:
+      - minio-init
+    ports:
+      - "8888:8888"
+    environment:
+      JUPYTER_TOKEN: jobmarket
+
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: jobmarket
+      S3_PREFIX: ""   
+
+      # optionnel : dataset courant
+      # DATASET: france_travail
+
+    volumes:
+      # Code (repo entier)
+      - ./:/home/jovyan/work
+
+      # Mapping explicite notebooks pour éviter de devoir naviguer dans le filesystem du container pour les trouver
+      - ./notebooks:/home/jovyan/notebooks
+
+    working_dir: /home/jovyan/work
+    command: >
+      bash -lc "
+      pip install -U pip &&
+      if [ -f requirements.txt ]; then pip install -r requirements.txt; fi &&
+      start-notebook.sh --NotebookApp.token=$${JUPYTER_TOKEN}
+      "
