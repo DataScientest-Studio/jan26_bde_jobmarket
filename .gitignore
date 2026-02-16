@@ -93,3 +93,8 @@ target/
 environments/*.bru
 exploration/api/francetravail/R/*
 
+# Local data storage for MinIO
+minio-data/
+
+# Env folder for jobmarket
+env_job_market/
