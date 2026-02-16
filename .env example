@@ -1,0 +1,115 @@
+# --------------------------------- 
+# ---- France Travail Settings ----
+# --------------------------------- 
+
+# ---- France Travail OAuth2 ----
+API_KEY= YOUR_API_KEY
+API_SECRET= YOUR_API_SECRET
+
+# Exemple indicatif : adapte au scope exact donné dans l'espace partenaire
+FT_SCOPE="api_offresdemploiv2 o2dsoffre nomenclatureRome api_rome-metiersv1"
+
+FT_TOKEN_URL="https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
+FT_API_BASE_URL="https://api.francetravail.io"
+
+# Request Per Second max for France Travail (req/s)
+FT_RATE_LIMIT_RPS=10
+
+# ---- Ingestion params ----
+FT_WINDOW_DAYS=7
+FT_MAX_WINDOWS=260
+FT_BINARY_SPLIT_MIN_SECONDS=3600
+FT_MAX_ROME_CODES=0
+
+# Local storage root (used when STORAGE_BACKEND=local)
+FT_DATA_DIR=data/france_travail
+
+# ----------------------------- 
+# ---- Welcome To The Jungle --
+# ----------------------------- 
+
+# Root local dédié WTTJ (équivalent à FT_DATA_DIR mais pour WTTJ)
+WTTJ_DATA_DIR=data/welcometothejungle
+
+# Prefix S3 dédié WTTJ (dans le bucket)
+S3_PREFIX_WTTJ=welcometothejungle
+
+# ----------------------------
+# Run control
+# ----------------------------
+# new | resume | incremental
+WTTJ_RUN_MODE=new             
+# requis si WTTJ_RUN_MODE=resume 
+WTTJ_RUN_ID=                   
+# requis si WTTJ_RUN_MODE=incremental
+WTTJ_RESUME_FROM_RUN_ID=       
+
+# ----------------------------
+# Crawl settings
+# ----------------------------
+
+# nb threads
+WTTJ_WORKERS=15
+# flush jsonl tous les N records
+WTTJ_PART_SIZE=500             
+# requêtes/sec (rate limit)
+WTTJ_RPS=2                     
+# burst token bucket
+WTTJ_BURST=4                  
+
+# ----------------------------
+# Retry HTTP
+# ----------------------------
+WTTJ_RETRIES=5
+WTTJ_BACKOFF=0.6
+
+# ----------------------------
+# HTML storage policy (bronze)
+# ----------------------------
+# never | on_error | always
+WTTJ_STORE_HTML=always       
+
+# ----------------------------
+# Debug / tests
+# ----------------------------
+# 0 = pas de limite
+WTTJ_MAX_JOBS=0                
+# 0 = pas de limite
+WTTJ_MAX_COMPANIES=0           
+LOG_LEVEL=INFO
+
+
+# ----------------------------- 
+# ---- Storage           ----
+# ----------------------------- 
+
+# ---- Storage backend ----
+# local or s3
+STORAGE_BACKEND=S3
+
+# ---- MinIO / S3 settings (used when STORAGE_BACKEND=s3) ----
+S3_ENDPOINT_URL=http://localhost:9000
+S3_ACCESS_KEY= DEFINE_YOUR_ACCESS_KEY
+S3_SECRET_KEY= DEFINE_YOUR_SECRET_KEY
+S3_BUCKET=jobmarket
+S3_PREFIX_FT=france_travail
+S3_PREFIX_WTTJ=welcometothejungle
+S3_REGION=us-east-1
+
+# ----------------------------- 
+# ---- Machine Learning    ----
+# -----------------------------
+MODEL_NAME=rome_tfidf
+MODEL_VERSION=v2
+
+MIN_CLASS_COUNT=25 
+MAX_COMPETENCES=25
+
+DATASET_KEY=gold/datasets/rome_dataset.parquet
+
+# Model LinearSVC hyperparameters
+TFIDF_NGRAM_MIN=1
+TFIDF_NGRAM_MAX=2
+TFIDF_MIN_DF=5
+TFIDF_MAX_DF=0.9
+TFIDF_MAX_FEATURES=200000
