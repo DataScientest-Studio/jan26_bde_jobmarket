@@ -1,3 +1,150 @@
+"""
+This module implements an end-to-end text classification pipeline to predict a France Travail ROME code 
+from the textual content of a job offer.
+
+Pipeline overview :
+
+    Ingestion and storage
+    ----------------------
+    Job offers are collected from the France Travail API using pagination. 
+    The API limits responses to 150 results per request, so the ingestion logic iterates over successive 
+    range windows until the maximum available range is reached. 
+    Raw offers are stored in the Bronze layer as JSONL (NDJSON) files. 
+    JSONL is well-suited for ingestion because each record is independent, 
+    files can be written as immutable parts (part-000001.jsonl, part-000002.jsonl), 
+    and this pattern is compatible with object storage systems such as S3/MinIO 
+    which do not support efficient append operations.
+
+    Dataset creation (Gold)
+    ----------------------
+    The dataset builder reads Bronze JSONL files and constructs an ML-ready table 
+    with a single text field and a target label. 
+    The text field concatenates relevant sections such as title, description, 
+    and (when available) structured competences. 
+
+    The output is written to the Gold layer as Parquet (columnar storage), 
+    which is smaller and faster to read than JSONL for training and analytics.
+
+    Target encoding (ROME codes)
+    ----------------------
+    ROME codes are categorical strings (e.g., "M1805", "C1504"). 
+    Since scikit-learn classifiers operate on numeric targets, 
+    labels are encoded into integer indices using a LabelEncoder. 
+    
+    This creates a stable mapping such as "M1805" -> 0, "C1504" -> 1, etc. 
+    The integer encoding does not imply any ordinal relationship; 
+    it is only a technical requirement for multi-class classification.
+
+    Feature engineering with TF-IDF and sparse matrices
+    ----------------------
+    Text is transformed into numerical features using TF-IDF (Term Frequency–Inverse Document Frequency). 
+    With a large corpus and n-grams (unigrams/bigrams), 
+    the vocabulary can reach hundreds of thousands of features. 
+
+    The resulting design matrix has shape approximately (n_samples, n_features), 
+    for example (307,000 x 200,000). 
+    It is sparse because each document contains only a small fraction of the global vocabulary, 
+    so most feature values are zero. 
+    
+    For efficiency, the matrix is stored in a compressed sparse format (CSR), 
+    which keeps only non-zero values and their indices, 
+    reducing memory usage and enabling fast linear operations.
+
+    Model choice: LinearSVC (linear SVM) versus Logistic Regression
+    ----------------------
+    The chosen model is LinearSVC, a linear Support Vector Machine trained 
+    to separate classes with hyperplanes in the high-dimensional TF-IDF space. 
+    
+    Text classification with TF-IDF often becomes close to linearly separable 
+    because the representation is high-dimensional and sparse, making a linear decision boundary effective. 
+    
+    LinearSVC is typically efficient and robust on large sparse matrices and multi-class setups, 
+    and it avoids the heavier computational costs that can appear with Logistic Regression 
+    when the number of classes and features is large (solver sensitivity, higher memory/CPU requirements). 
+    
+    Top-k predictions can be produced by ranking the decision scores returned by the model's decision function.
+
+    Why not a Transformer (BERT) model
+    ----------------------
+    Transformer-based approaches can capture deeper semantic relationships, 
+    but they come with higher operational cost: GPU requirements (or much slower CPU inference), 
+    increased memory usage, longer training times, and additional complexity for fine-tuning and deployment. 
+    
+    In a large-scale, structured job-offer domain where discriminative keywords and phrases are strong signals, 
+    TF-IDF plus a linear classifier is a strong and lightweight baseline 
+    that is easier to train, version, and deploy in a Dockerized environment. 
+    
+    A Transformer becomes more justified when semantic nuance is critical, labeled data is limited, 
+    and the infrastructure can support deep learning workflows.
+
+    Evaluation metrics and their usage
+    ----------------------
+    Multiple metrics are used due to the large number of classes and potential class imbalance:
+
+        - Accuracy measures overall correctness (percentage of exact matches) 
+        but can be misleading if classes are imbalanced.
+
+        - Macro F1-score computes F1 per class and averages equally across classes, 
+        providing a fairer view of performance on minority classes. 
+        
+        F1 per class explains which ROME codes are well-predicted and which are not.
+        So it is crucial for diagnosing model performance across the diverse set of ROME codes.
+        
+        - Top-k accuracy (e.g., top-3, top-5) measures whether the true ROME code 
+        appears among the k highest-scoring predictions. 
+
+
+                        ┌─────────────────────────┐
+                        │ FT Bronze Layer (JSONL) │
+                        │ partitionné :           │
+                        │ dt=YYYY-MM-DD           │
+                        │ run_id=timestamp        │
+                        │ part-000001.jsonl       │
+                        └─────────────┬───────────┘
+                                      │
+                                      ▼
+                        ┌─────────────────────────┐
+                        │  Dataset Builder        │
+                        │  make_dataset.py        │
+                        │  - Nettoyage texte      │
+                        │  - Construction champ ML│
+                        │  - Filtrage classes     │
+                        └─────────────┬───────────┘
+                                      │
+                                      ▼
+                        ┌─────────────────────────┐
+                        │ Gold Layer (Parquet)    │
+                        │ rome_dataset.parquet    │
+                        └─────────────┬───────────┘
+                                      │
+                                      ▼
+                        ┌─────────────────────────┐
+                        │   Training Script       │
+                        │   train_model.py        │
+                        │                         │
+                        │   1. Split 80/10/10     │
+                        │   2. TF-IDF Vectorizer  │
+                        │   3. LinearSVC          │
+                        │   4. Metrics (Top-K)    │
+                        └─────────────┬───────────┘
+                                      │
+                                      ▼
+                        ┌─────────────────────────┐
+                        │  Model Artifacts        │
+                        │  models/rome_tfidf/     │
+                        │    versions/vX/         │
+                        │      model.joblib       │
+                        │      vectorizer.joblib  │
+                        │      metrics.json       │
+                        │    LATEST.json          │
+                        └─────────────────────────┘
+
+
+"""
+
+
+
+
 import io
 import json
 import os
