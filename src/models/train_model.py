@@ -313,6 +313,7 @@ def main():
     if not required_cols.issubset(df.columns):
         raise RuntimeError(f"Dataset must contain columns {required_cols}, found: {list(df.columns)}")
 
+    # Drop rows with missing text or labels, and reset index for clean slicing later.
     df = df.dropna(subset=["text", "romeCode"]).reset_index(drop=True)
     print(f"📊 Dataset rows: {len(df)} | classes: {df['romeCode'].nunique()}")
 
