@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from tqdm import tqdm  
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -40,6 +41,8 @@ from urllib3.util.retry import Retry
 
 from src.storage.storage import get_storage_from_env
 
+from dotenv import load_dotenv
+load_dotenv()
 
 # ----------------------------
 # Logging
@@ -53,7 +56,6 @@ def setup_logging() -> None:
 
 
 logger = logging.getLogger("wttj.ingest")
-
 
 # ----------------------------
 # Rate limiter (token bucket)
@@ -81,7 +83,7 @@ class RateLimiter:
 
                 missing = 1.0 - self.tokens
                 sleep_for = missing / self.rate if self.rate > 0 else 0.1
-
+            logger.debug(f"Rate limit exceeded, sleeping for {sleep_for:.2f}s")
             time.sleep(max(0.01, sleep_for))
 
 
@@ -120,6 +122,7 @@ def build_session() -> requests.Session:
             )
         }
     )
+
     return session
 
 
@@ -133,7 +136,6 @@ NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 # We focus on job listings for now, but company profiles can be added later if needed.
 #SITEMAP_ALLOWED_RE = re.compile(r"(company-profiles|job-listings)\.\d+\.xml\.gz$", re.IGNORECASE)
 SITEMAP_ALLOWED_RE = re.compile(r"(job-listings)\.\d+\.xml\.gz$", re.IGNORECASE)
-
 
 def download_gz_xml(session: requests.Session, url: str, limiter: RateLimiter) -> bytes:
     """ Download a gzipped XML file and return its content as bytes. """
@@ -196,27 +198,32 @@ def add_url(url: str, target: Set[str], kind: str) -> None:
 
 
 def collect_urls(session: requests.Session, limiter: RateLimiter) -> Tuple[Set[str], Set[str]]:
-    """ Collect job and company URLs from the filtered sitemaps. Returns two sets: (job_urls, company_urls). """
     sitemaps = list_target_sitemaps(session, limiter)
-
-    jobs: Set[str] = set()
-    companies: Set[str] = set()
-
-    for sm_url in sitemaps:
-        logger.info("Reading sitemap: %s", sm_url)
+    jobs, companies = set(), set()
+    
+    pbar_sitemaps = tqdm(sitemaps, desc="📄 Sitemaps")
+    for sm_url in pbar_sitemaps:
         gz = download_gz_xml(session, sm_url, limiter)
-        urls = parse_gz_sitemap_locations(gz, tag="loc")
-
-        for u in urls:
-            if "job-listings" in sm_url:
-                add_url(u, jobs, "job")
-            elif "/fr/companies/" in u:
-             #   add_url(u, companies, "company")
-                pass
-
-    logger.info("Collected | jobs=%d | companies=%d", len(jobs), len(companies))
+        urls = sorted(parse_gz_sitemap_locations(gz, tag="loc"))
+        
+        # COMPTEUR URLS (pas logs)
+        job_urls = [u for u in urls if "job-listings" in sm_url]
+        new_jobs = add_urls_batch(job_urls, jobs)
+        
+        pbar_sitemaps.set_postfix({
+            "Jobs": len(jobs), 
+            "Sitemap": f"+{new_jobs}"
+        })
+    
+    print(f"🎉 {len(jobs)} jobs | {len(companies)} companies")
     return jobs, companies
 
+
+def add_urls_batch(urls, url_set):
+    """Ajoute batch, retourne NB nouveaux"""
+    before = len(url_set)
+    url_set.update(urls)
+    return len(url_set) - before
 
 # ----------------------------
 # Extract window.__INITIAL_DATA__
@@ -232,8 +239,13 @@ def collect_urls(session: requests.Session, limiter: RateLimiter) -> Tuple[Set[s
 # so we need to unescape it properly before parsing as JSON. 
 # The regex looks for the pattern window.__INITIAL_DATA__ = "..." and captures the content inside the quotes, allowing for escaped characters. 
 # The re.DOTALL flag allows the dot to match newlines, which is important if the JSON string spans multiple lines.
+#INITIAL_DATA_RE = re.compile(
+#    r'window\.__INITIAL_DATA__\s*=\s*"((?:\\.|[^"\\])*)"',
+#    re.DOTALL
+#)
+
 INITIAL_DATA_RE = re.compile(
-    r'window\.__INITIAL_DATA__\s*=\s*"((?:\\.|[^"\\])*)"',
+    r'window\.__INITIAL_DATA__\s*=\s*"((?:[^"\\]|\\.)*)"\s*;?',
     re.DOTALL
 )
 
@@ -244,17 +256,28 @@ def extract_initial_data_from_html(html: str) -> Optional[Dict[str, Any]]:
     if not m:
         return None
 
-    raw = m.group(1)
+    # 1. Extract the raw JSON string (still escaped as it is in the HTML)
+    raw_string = m.group(1)
 
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    try:
-        unescaped = json.loads(f'"{raw}"')
-        return json.loads(unescaped)
-    except Exception:
+        # 2. Décode Unicode JS (\uXXXX → UTF-8)
+        json_text = bytes(raw_string, 'utf-8').decode('unicode_escape')
+        
+        # 3. Parse JSON principal
+        data = json.loads(json_text)
+        
+        # 4. Dé-sérialise les champs internes (arrays/objects stringifiés)
+        for key, value in data.items():
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    data[key] = parsed
+                    print(f"🔄 {key}: string → {type(parsed).__name__}")
+                except json.JSONDecodeError:
+                    pass  # Garde string si pas JSON
+        return data
+    except Exception as e:
+        print(f"Error parsing initial data: {e}")
         return None
 
 
@@ -314,36 +337,6 @@ def format_eta(seconds: float) -> str:
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
-
-
-# ----------------------------
-# HTTP fetch result
-# ----------------------------
-@dataclass
-class FetchResult:
-    url: str
-    ok: bool
-    status_code: Optional[int]
-    html: Optional[str]
-    error: Optional[str]
-
-
-def fetch_page(session: requests.Session, limiter: RateLimiter, url: str) -> FetchResult:
-    """ Fetch a page and return a FetchResult containing the URL, status, HTML content, and any error message. """
-    # We acquire the rate limiter before making the request to ensure we respect the configured RPS and burst limits.
-    limiter.acquire()
-    try:
-        # We set a timeout to avoid hanging indefinitely on slow responses. 
-        # The retry logic is handled by the session's HTTPAdapter configuration.
-        r = session.get(url, timeout=30)
-        status = r.status_code
-        # If the status code indicates an error (4xx or 5xx), we consider the fetch as not ok 
-        # and include the status code and any response text in the error message.
-        if status >= 400:
-            return FetchResult(url=url, ok=False, status_code=status, html=r.text, error=f"HTTP {status}")
-        return FetchResult(url=url, ok=True, status_code=status, html=r.text, error=None)
-    except Exception as e:
-        return FetchResult(url=url, ok=False, status_code=None, html=None, error=str(e))
 
 
 # ----------------------------
@@ -421,6 +414,35 @@ def should_store_html(mode: str, res_ok: bool, initial_data_ok: bool) -> bool:
     return (not res_ok) or (not initial_data_ok)
 
 
+class FetchResult:
+    """Class to represent the result of fetching a page, including the URL, status, HTML content, and any error message."""
+    def __init__(self, url: str, ok: bool, status_code: Optional[int], html: Optional[str], error: Optional[str]):
+        self.url = url
+        self.ok = ok
+        self.status_code = status_code
+        self.html = html
+        self.error = error
+
+
+def fetch_page(session: requests.Session, limiter, url: str) -> FetchResult:
+    """Fetch avec pool de proxies"""
+    limiter.acquire()
+    
+    try:
+        
+        r = session.get(url, timeout=30)
+        
+        if r.status_code >= 400:
+            return FetchResult(url=url, ok=False, status_code=r.status_code, html=r.text, 
+                             error=f"HTTP {r.status_code}")
+        
+        return FetchResult(url=url, ok=True, status_code=r.status_code, html=r.text, error=None)
+    
+    except Exception as e:
+        logger.error(f"[FETCH ERROR] {url}: {e}")
+        return FetchResult(url=url, ok=False, status_code=None, html=None, error=str(e))
+
+
 def ingest_segment(
     *,
     dt: str,
@@ -463,7 +485,9 @@ def ingest_segment(
     # This allows us to resume or run incrementally without reprocessing URLs we've already handled in previous runs, 
     # which is important for efficiency and avoiding duplicate work.
     urls_todo = [u for u in urls if u not in skip_urls]
-
+    # Url to process (not skipped) count
+    total_urls = len(urls_todo)
+    
     # We define a prefix for the raw data files in storage based on the date, run ID, and segment.
     raw_prefix = f"bronze/dt={dt}/run_id={run_id}/segment={segment}_raw/"
 
@@ -481,12 +505,8 @@ def ingest_segment(
     buffer: List[Dict[str, Any]] = []
 
     start_time = time.time()
-    total_urls = len(urls_todo)
-
-    logger.info(
-        "Start segment=%s | urls_total=%d | skip=%d | todo=%d | workers=%d | part_size=%d | next_part=%d",
-        segment, len(urls), len(skip_urls), total_urls, workers, part_size, part_no
-    )
+    
+    logger.info(f"Start segment={segment} | urls_total={len(urls)} | skip={len(skip_urls)} | todo={len(urls_todo)} | workers={workers} | part_size={part_size} | next_part={part_no}" )
 
     def flush_buffer() -> None:
         """ Nested function to flush the current buffer of records to storage as a new part file, and update the progress meta."""
@@ -537,7 +557,7 @@ def ingest_segment(
             "updated_at": utc_now_iso(),
         })
         return
-
+ 
     # We use a ThreadPoolExecutor to fetch pages concurrently. 
     # For each URL, we submit a fetch_page task to the pool, which will return a FetchResult when done.
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -605,7 +625,7 @@ def ingest_segment(
                 flush_buffer()
 
             # Progress (% + ETA)
-            if processed % 200 == 0 or processed == total_urls:
+            if processed % int(os.getenv("WTTJ_LOG_EACH_XX_URL", "100")) == 0 or processed == total_urls:
                 elapsed = time.time() - start_time
                 rate = processed / elapsed if elapsed > 0 else 0.0
                 remaining = total_urls - processed
@@ -666,7 +686,7 @@ def main() -> None:
     limiter = RateLimiter(rate=rps, capacity=burst)
 
     session = build_session()
-
+    
     # Storage (local / S3) — mêmes variables que votre storage.py,
     # mais ici on passe un root dédié WTTJ + un prefix dédié.
     storage = get_storage_from_env(
