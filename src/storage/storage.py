@@ -2,6 +2,7 @@ import json
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
+from pydoc import html
 from typing import Any, Dict, Iterable, Optional
 import io
 # For pandas DataFrame type hint
@@ -10,7 +11,8 @@ import gzip
 from typing import Union
 
 import boto3
-
+from pyparsing import line
+import html
 
 class StorageError(RuntimeError):
     """Raised when the storage backend is misconfigured or fails in a non-recoverable way."""
@@ -176,7 +178,12 @@ class LocalStorage(Storage):
                     if not line:
                         continue
                     try:
-                        yield json.loads(line)
+                        #yield json.loads(line)
+                        # AJOUTE unescape
+                        clean_line = html.unescape(str(line))
+                        
+                        yield json.loads(clean_line)
+
                     except json.JSONDecodeError:
                         continue
         return gen()
@@ -205,7 +212,8 @@ class LocalStorage(Storage):
         count = 0
         with path.open("w", encoding="utf-8") as f:
             for rec in records:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                #f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                f.write(json.dumps(rec, ensure_ascii=True) + "\n") # True = ASCII safe
                 count += 1
         return count
 
@@ -310,8 +318,12 @@ class S3Storage(Storage):
                 if not line:
                     continue
                 try:
-                    yield json.loads(line)
+                    #yield json.loads(line)
+                    # AJOUTE unescape
+                    clean_line = html.unescape(str(line))
+                    yield json.loads(clean_line)                    
                 except json.JSONDecodeError:
+                    print(f"⚠️ JSON decode error in {key}: {line[:100]}...")
                     continue
         return gen()
 
@@ -352,7 +364,8 @@ class S3Storage(Storage):
         lines = []
         count = 0
         for rec in records:
-            lines.append(json.dumps(rec, ensure_ascii=False))
+            #lines.append(json.dumps(rec, ensure_ascii=False))
+            lines.append(json.dumps(rec, ensure_ascii=True))  # True = ASCII safe
             count += 1
 
         body = ("\n".join(lines) + "\n").encode("utf-8")
