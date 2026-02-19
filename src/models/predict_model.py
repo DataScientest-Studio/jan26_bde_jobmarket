@@ -8,8 +8,6 @@ from typing import Any, Dict, List, Optional
 import boto3
 import joblib
 import numpy as np
-
-
 # -----------------------------
 # CONFIG
 # -----------------------------
@@ -25,7 +23,6 @@ S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_PREFIX = (os.getenv("S3_PREFIX_FT", "") or "").strip("/")
 S3_REGION = os.getenv("S3_REGION", "us-east-1")
-
 
 # -----------------------------
 # Helpers: S3
@@ -50,6 +47,18 @@ def _s3_full_key(key: str) -> str:
     return f"{S3_PREFIX}/{normalized}" if S3_PREFIX else normalized
 
 
+
+def read_json(key: str) -> Dict[str, Any]:
+    return json.loads(read_bytes(key).decode("utf-8"))
+
+def load_joblib(key: str) -> Any:
+    data = read_bytes(key)
+    return joblib.load(io.BytesIO(data))
+
+
+# -----------------------------
+# Get ROME model
+# -----------------------------
 def read_bytes(key: str) -> bytes:
     if STORAGE_BACKEND == "local":
         path = FT_DATA_DIR / Path(key)
@@ -66,13 +75,28 @@ def read_bytes(key: str) -> bytes:
     raise RuntimeError(f"Unsupported STORAGE_BACKEND={STORAGE_BACKEND}")
 
 
-def read_json(key: str) -> Dict[str, Any]:
-    return json.loads(read_bytes(key).decode("utf-8"))
+def read_jsonl(key: str) -> List[Dict[str, Any]]:
+    """ Read JSONL file and return list of dicts """
+    results = []
+    data = read_bytes(key).decode("utf-8")
+    for line in data.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        results.append(json.loads(line))
+    return results
+
+def get_rome_model() -> str:
+    rome_model = read_jsonl(f"bronze/rome/rome_metiers.jsonl")
+    rome_index = {row["code"]: row["libelle"] for row in rome_model}
+    return rome_index
+
+global rome_model
+rome_model = get_rome_model()
+print(f"✅ Loaded ROME model: {len(rome_model)} entries")
 
 
-def load_joblib(key: str) -> Any:
-    data = read_bytes(key)
-    return joblib.load(io.BytesIO(data))
+
 
 
 # -----------------------------
@@ -122,7 +146,6 @@ def build_text_payload(
 
     return "\n".join(parts).strip()
 
-
 # -----------------------------
 # Load latest model artifacts
 # -----------------------------
@@ -147,6 +170,7 @@ def predict_top_k(
     artifacts: Dict[str, Any],
     text: str,
     top_k: int = 5,
+    rome_index: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     vectorizer = artifacts["vectorizer"]
     model = artifacts["model"]
@@ -166,9 +190,9 @@ def predict_top_k(
     top = []
     for idx in top_idx:
         rome = le.inverse_transform([idx])[0]
-        top.append({"romeCode": str(rome), "score": float(scores[idx])})
+        top.append({"rome_code": str(rome), "rome_label": rome_index.get(str(rome)), "score": float(scores[idx])})
 
-    return {"rome_pred": top[0]["romeCode"], "top_k": top}
+    return {"rome_pred": top[0]["rome_code"], "rome_label": rome_index.get(top[0]["rome_code"]), "top_k": top}
 
 
 def main():
@@ -190,7 +214,7 @@ def main():
         competences=example.get("competences"),
     )
 
-    pred = predict_top_k(artifacts, text, top_k=TOP_K)
+    pred = predict_top_k(artifacts, text, top_k=TOP_K, rome_index=rome_model)
     print("🎯 Prediction:")
     print(json.dumps(pred, ensure_ascii=False, indent=2))
 
