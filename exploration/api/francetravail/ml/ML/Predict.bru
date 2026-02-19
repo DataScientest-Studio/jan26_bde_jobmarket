@@ -1,0 +1,25 @@
+meta {
+  name: Predict
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:8000/predict
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "intitule": "Data Engineer",
+    "description": "Développement de pipelines de données avec Python, Spark, Airflow. Mise en place de jobs ETL, ingestion, stockage sur S3/MinIO.",
+    "competences": [
+      "Python",
+      "Spark",
+      "Airflow",
+      "SQL",
+      "S3"
+    ]
+  }
+}
