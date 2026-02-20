@@ -170,6 +170,58 @@ def set_wttj_all_from_json(storage, jsonld_keys):
     
     return pd.concat(dfs, ignore_index=True)
 
+
+def get_rome_code_from_ml_prediction(name: str, description: str) -> Optional[str]:
+    """
+    Récupère code ROME principal depuis ML API.
+    
+    Args:
+        name: Titre poste
+        description: Description complète
+        
+    Returns:
+        Code ROME principal ou None
+    """
+    payload = {
+        "intitule": name or "",
+        "description": description or ""
+    }
+    
+    try:
+        # API depuis .env
+        api_url = os.getenv("ML_HOST_API", "http://localhost:8000")
+        endpoint = os.getenv("ML_ENDPOINT", "predict")
+        url = f"{api_url}/{endpoint}"
+        
+        logger.info(f"ML predict: {name[:50]}...")
+        response = requests.post(
+            url, 
+            json=payload,
+            timeout=int(os.getenv("ML_TIMEOUT", "30"))
+        )
+        response.raise_for_status()  # 4xx/5xx → Exception
+        
+        result = response.json()
+        rome_code = result['rome_pred'] if result else None
+        rome_labelle = result['rome_label'] if result else None
+        return rome_code, rome_labelle
+        
+    except requests.exceptions.Timeout:
+        logger.error("ML API timeout")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.error("ML API unreachable")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"ML HTTP {e.response.status_code}: {e.response.text[:200]}")
+        return None
+    except (KeyError, ValueError, json.JSONDecodeError) as e:
+        logger.error(f"ML JSON error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"ML unexpected: {e}")
+        return None
+
 def set_wttj_all_from_json_silent(storage, key):
     """AUCUN print/tqdm → SILENT."""
     data = []
@@ -210,12 +262,16 @@ def set_wttj_all_from_json_silent(storage, key):
                     (link.get('href', '') for link in urls_list if link.get('kind') == 'canonical'),
                     ''
                 )
+
+                name = clean_html(job_data.get("name", ""))
+                description= clean_html(job_data.get("description", ""))
+                rome_code, rome_label = get_rome_code_from_ml_prediction(name, description)
                 
                 data.append({
                     "wttj_reference": job_data.get("wttj_reference"),
                     "reference": job_data.get("reference"),                    
-                    "name": clean_html(job_data.get("name", "")),
-                    "description": clean_html(job_data.get("description", "")),
+                    "name": name,
+                    "description": description,
                     "profile": clean_html(job_data.get("profile")),
 
                     "salary_min": job_data.get("salary_min"),
@@ -244,6 +300,9 @@ def set_wttj_all_from_json_silent(storage, key):
 
                     "sectors" : get_field_or_default(record, 'sectors', []),
                     "profession" : get_field_or_default(record, 'profession'),
+                    "rome_code": rome_code ,
+                    "rome_label": rome_label
+
                 })
             except Exception as e:
                 errors += 1
@@ -283,15 +342,15 @@ def main() -> None:
 
     logger.info("Run start | dt=%s | run_id=%s", dt, run_id)
 
-    silver_jobs_prefix = f"silver/dt={dt}/run_id={run_id}/segment=jobs_/"
-    source_bronze_key=""
-
-    bronze_prefix = "bronze/dt=2026-02-18/run_id=20260217T181105Z/segment=jobs_raw"
+    silver_jobs_prefix = f"silver/dt={dt}/run_id={run_id}/segment=jobs/"
+    source_bronze_prefix = "bronze/dt=2026-02-18/run_id=20260217T181105Z/segment=jobs_raw"
 
     # Get Json ld keys
-    jsonld_keys = storage.list_keys(bronze_prefix)
+    jsonld_keys = storage.list_keys(source_bronze_prefix)
 
     df= set_wttj_all_from_json(storage=storage, jsonld_keys=jsonld_keys)
+    # Save parquet in silver layer
+    storage.write_parquet(df, silver_jobs_prefix + "wttj_jobs.parquet")
 
     # We then call the ingest_segment function for both jobs and companies.
 
