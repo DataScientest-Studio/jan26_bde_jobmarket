@@ -73,6 +73,14 @@ class Storage(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_object_jsonl(self, key: str) -> Iterable[Dict[str, Any]]:
+        """
+        Read an NDJSON/JSONL document from storage and yield dict records.
+        """
+        raise NotImplementedError
+
+
+    @abstractmethod
     def write_parquet(self, key: str, df) -> None:
         """Write a parquet file at key."""
         raise NotImplementedError
@@ -306,6 +314,12 @@ class S3Storage(Storage):
                     logical = k
                 keys.append(logical)
         return keys
+
+    def get_object_jsonl(self, key: str) -> Iterable[Dict[str, Any]]:
+        full_key = self._full_key(key)
+        resp = self.client.get_object(Bucket=self.bucket, Key=full_key)
+        return resp 
+
 
     def read_jsonl(self, key: str) -> Iterable[Dict[str, Any]]:
         full_key = self._full_key(key)

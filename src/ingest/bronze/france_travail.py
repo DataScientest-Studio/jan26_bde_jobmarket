@@ -8,9 +8,9 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 from termcolor import colored
 
-from src.ingest.france_travail_client import FranceTravailClient
-from src.storage.storage import get_storage_from_env, Storage
+from src.ingest.clients.france_travail_client import FranceTravailClient
 
+from src.storage.storage import get_storage_from_env, Storage
 
 CONTENT_RANGE_RE = re.compile(r"offres\s+(\d+)-(\d+)/(\d+)", re.IGNORECASE)
 
@@ -321,7 +321,30 @@ def extract_and_store_by_range(
 
         part_index += 1
         key = offers_part_key(dt, run_id, code_rome, segment, part_index)
-        written = storage.write_jsonl(key, results)
+
+        # AVANT
+        #written = storage.write_jsonl(key, results)
+
+        import html
+        clean_results = []
+        for result in results:
+            # Nettoie récursivement HTML entities
+            def clean_html(data):
+                if isinstance(data, dict):
+                    return {k: clean_html(v) for k, v in data.items()}
+                elif isinstance(data, list):
+                    return [clean_html(v) for v in data]
+                elif isinstance(data, str):
+                    return html.unescape(data)  # ’ → ', é → é
+                return data
+            clean_results.append(clean_html(result))
+
+        written = storage.write_jsonl(key, clean_results)
+
+
+
+        
+        
         total_written += written
 
         if written < page_size or end >= max_end_index:
