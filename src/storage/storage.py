@@ -196,11 +196,11 @@ class LocalStorage(Storage):
         """
         Write a JSON document to disk.
 
-        Uses UTF-8 and ensure_ascii=False to keep French characters readable.
+        Uses UTF-8 and ensure_ascii=True for consistent encoding.
         """
         path = self._resolve(key)
         with path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=True, indent=2)
 
     def write_jsonl(self, key: str, records: Iterable[Dict[str, Any]]) -> int:
         """
@@ -345,7 +345,7 @@ class S3Storage(Storage):
 
         ContentType is set for clarity and downstream consumers.
         """
-        body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        body = json.dumps(payload, ensure_ascii=True, indent=2).encode("utf-8")
         self.client.put_object(
             Bucket=self.bucket,
             Key=self._full_key(key),
