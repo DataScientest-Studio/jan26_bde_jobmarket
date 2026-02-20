@@ -1,5 +1,8 @@
 """ 
-Ingest script for Welcome to the Jungle (WTTJ) job offers and company profiles.
+==============
+BRONZE Layer
+==============
+ Ingest script for Welcome to the Jungle (WTTJ) job offers and company profiles.
 
 This script performs the following steps:
 
@@ -40,6 +43,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.storage.storage import get_storage_from_env
+from src.ingest.tools.rate_limiter import RateLimiter
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -55,37 +59,7 @@ def setup_logging() -> None:
     )
 
 
-logger = logging.getLogger("wttj.ingest")
-
-# ----------------------------
-# Rate limiter (token bucket)
-# ----------------------------
-# TODO : Refactor with France Travail ingest if possible (common utils ?)
-class RateLimiter:
-    def __init__(self, rate: float, capacity: int) -> None:
-        self.rate = float(rate)
-        self.capacity = int(capacity)
-        self.tokens = float(capacity)
-        self.updated_at = time.monotonic()
-        self.lock = threading.Lock()
-
-    def acquire(self) -> None:
-        while True:
-            with self.lock:
-                now = time.monotonic()
-                elapsed = now - self.updated_at
-                self.updated_at = now
-
-                self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
-                if self.tokens >= 1.0:
-                    self.tokens -= 1.0
-                    return
-
-                missing = 1.0 - self.tokens
-                sleep_for = missing / self.rate if self.rate > 0 else 0.1
-            logger.debug(f"Rate limit exceeded, sleeping for {sleep_for:.2f}s")
-            time.sleep(max(0.01, sleep_for))
-
+logger = logging.getLogger("wttj.ingest.bronze")
 
 # ----------------------------
 # HTTP Session with Retry
@@ -312,31 +286,6 @@ def compute_company_key(url: str) -> str:
     if m:
         return m.group(1)
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
-
-
-# ----------------------------
-# Time helpers
-# ----------------------------
-def utc_now_iso() -> str:
-    """ Return the current UTC time in ISO 8601 format. """
-    return datetime.now(timezone.utc).isoformat()
-
-
-def run_id_utc() -> str:
-    """ Generate a run ID based on the current UTC time in a compact format. """
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def format_eta(seconds: float) -> str:
-    """ Format a duration in seconds into a human-readable string HH:MM:SS. If the input is zero or negative, return "00:00:00".
-        This is used for logging elapsed time and estimated time remaining in the ingestion process.
-      """
-    if seconds <= 0:
-        return "00:00:00"
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
 
 
 # ----------------------------
@@ -683,7 +632,7 @@ def main() -> None:
 
     rps = float(os.getenv("WTTJ_RPS", "2"))
     burst = int(os.getenv("WTTJ_BURST", "4"))
-    limiter = RateLimiter(rate=rps, capacity=burst)
+    limiter = RateLimiter(rate=rps, capacity=burst, logger =logger)
 
     session = build_session()
     

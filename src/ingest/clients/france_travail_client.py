@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-import threading
 import requests
 from dotenv import load_dotenv
 import random
 from requests.exceptions import ConnectionError, Timeout, RequestException
+from src.ingest.tools.rate_limiter import RateLimiter 
 
 class FranceTravailAuthError(RuntimeError):
     pass
@@ -16,7 +17,7 @@ class FranceTravailAuthError(RuntimeError):
 class FranceTravailAPIError(RuntimeError):
     pass
 
-
+# Token dataclass to hold OAuth2 token information and check validity
 @dataclass
 class _Token:
     access_token: str
@@ -32,47 +33,13 @@ class _Token:
     def is_valid(self) -> bool:
         return time.time() < self.expires_at
 
-class TokenBucketRateLimiter:
-    """
-    Token bucket:
-    - rate: tokens ajoutés par seconde (RPS)
-    - capacity: taille du seau (burst max)
-    Chaque requête consomme 1 token.
-    """
-    def __init__(self, rate: float, capacity: float):
-        self.rate = float(rate)
-        self.capacity = float(capacity)
-        self.tokens = float(capacity)
-        self.updated_at = time.monotonic()
-        self._lock = threading.Lock()
-
-    def acquire(self, tokens: float = 1.0) -> None:
-        while True:
-            with self._lock:
-                now = time.monotonic()
-                elapsed = now - self.updated_at
-                # recharge
-                self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
-                self.updated_at = now
-
-                if self.tokens >= tokens:
-                    self.tokens -= tokens
-                    return
-
-                # temps d'attente estimé
-                missing = tokens - self.tokens
-                wait_s = missing / self.rate if self.rate > 0 else 0.1
-
-            time.sleep(max(0.0, wait_s))
-
-
 class FranceTravailClient:
     """
-    Client générique pour api.francetravail.io avec OAuth2 client_credentials.
+    Generic client for api.francetravail.io with OAuth2 client_credentials.
 
-    - Génère et met en cache un token
-    - Ajoute automatiquement Authorization: Bearer <token>
-    - Rafraîchit si absent/expiré
+    - Generates and caches a token
+    - Automatically adds Authorization: Bearer <token>
+    - Refreshes if absent/expired
     """
 
     def __init__(
@@ -86,10 +53,14 @@ class FranceTravailClient:
         load_dotenv()
 
         # Request rate limiting for France Travail (ex: 10 req/s)
-        self.rate_limit_rps = float(os.getenv("FT_RATE_LIMIT_RPS", "10"))
-        self._min_interval_s = 1.0 / self.rate_limit_rps if self.rate_limit_rps > 0 else 0.0
-        self._last_call_ts = 0.0
-        self._rl_lock = threading.Lock()
+        rate_limit_rps = float(os.getenv("FT_RATE_LIMIT_RPS", "10"))
+        
+        # Use RateLimiter 
+        self.rate_limiter = RateLimiter(
+            rate=rate_limit_rps,           # tokens par seconde
+            capacity=int(rate_limit_rps),  # burst capacity
+            logger=logging.getLogger(__name__)
+        )
 
         self.client_id = os.getenv("API_KEY")
         self.client_secret = os.getenv("API_SECRET")
@@ -107,19 +78,6 @@ class FranceTravailClient:
 
         self._session = session or requests.Session()
         self._token: Optional[_Token] = None
-
-
-    def _rate_limit_wait(self) -> None:
-        if self._min_interval_s <= 0:
-            return
-
-        with self._rl_lock:
-            now = time.monotonic()
-            wait_s = (self._last_call_ts + self._min_interval_s) - now
-            if wait_s > 0:
-                time.sleep(wait_s)
-                now = time.monotonic()
-            self._last_call_ts = now
 
     # --------------------
     # Auth / Token handling
@@ -221,7 +179,7 @@ class FranceTravailClient:
                 req_headers.update(headers)
 
             try:
-                self._rate_limit_wait()
+                self.rate_limiter.acquire()
                 resp = self._session.request(
                     method=method.upper(),
                     url=url,
@@ -238,7 +196,7 @@ class FranceTravailClient:
                     token = self._ensure_token()
                     req_headers["Authorization"] = f"Bearer {token}"
 
-                    self._rate_limit_wait()
+                    self.rate_limiter.acquire()
                     resp = self._session.request(
                         method=method.upper(),
                         url=url,

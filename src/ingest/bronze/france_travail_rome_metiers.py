@@ -1,5 +1,5 @@
 from src import data
-from src.ingest.france_travail_client import FranceTravailClient
+from src.ingest.clients.france_travail_client import FranceTravailClient
 from src.storage.storage import get_storage_from_env, Storage
 from typing import Any, Dict, Iterable, List, Tuple
 import os
