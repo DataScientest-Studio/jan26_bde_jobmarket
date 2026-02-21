@@ -193,7 +193,7 @@ def get_rome_code_from_ml_prediction(name: str, description: str) -> Optional[st
         endpoint = os.getenv("ML_ENDPOINT", "predict")
         url = f"{api_url}/{endpoint}"
         
-        logger.info(f"ML predict: {name[:50]}...")
+        #logger.info(f"ML predict: {name[:50]}...")
         response = requests.post(
             url, 
             json=payload,
@@ -221,6 +221,8 @@ def get_rome_code_from_ml_prediction(name: str, description: str) -> Optional[st
     except Exception as e:
         logger.error(f"ML unexpected: {e}")
         return None
+
+
 
 def set_wttj_all_from_json_silent(storage, key):
     """AUCUN print/tqdm → SILENT."""
@@ -266,7 +268,8 @@ def set_wttj_all_from_json_silent(storage, key):
                 name = clean_html(job_data.get("name", ""))
                 description= clean_html(job_data.get("description", ""))
                 rome_code, rome_label = get_rome_code_from_ml_prediction(name, description)
-                
+                profession = get_field_or_default(record, 'profession')
+
                 data.append({
                     "wttj_reference": job_data.get("wttj_reference"),
                     "reference": job_data.get("reference"),                    
@@ -299,7 +302,7 @@ def set_wttj_all_from_json_silent(storage, key):
                     "offices": job_data.get("offices", [""]),
 
                     "sectors" : get_field_or_default(record, 'sectors', []),
-                    "profession" : get_field_or_default(record, 'profession'),
+                    "profession" : profession,
                     "rome_code": rome_code ,
                     "rome_label": rome_label
 
@@ -349,8 +352,18 @@ def main() -> None:
     jsonld_keys = storage.list_keys(source_bronze_prefix)
 
     df= set_wttj_all_from_json(storage=storage, jsonld_keys=jsonld_keys)
+
+    # Fix mixed types in object columns (dicts/lists → JSON strings, NaN → None)
+    object_cols = df.select_dtypes(include=['object']).columns
+    for col in object_cols:
+        # Debug: print(f"{col}: {df[col].map(type).value_counts().head()}")
+        df[col] = df[col].apply(
+            lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) 
+            else (str(x) if pd.notna(x) else None)
+        )
+
     # Save parquet in silver layer
-    storage.write_parquet(df, silver_jobs_prefix + "wttj_jobs.parquet")
+    storage.write_parquet(silver_jobs_prefix + "wttj_jobs.parquet", df)
 
     # We then call the ingest_segment function for both jobs and companies.
 
