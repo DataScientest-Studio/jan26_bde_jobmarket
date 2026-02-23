@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
 from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.france_travail import ingest_france_travail_offers
+from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
 
 # Configuration du logging
 logging.basicConfig(
@@ -100,6 +101,20 @@ class IngestOffersResponse(BaseModel):
     written: Optional[int] = Field(None, description="Nombre total d'offres écrites", example=15000)
     elapsed_s: Optional[float] = Field(None, description="Durée de l'ingestion en secondes", example=3600.5)
     errors: Optional[int] = Field(None, description="Nombre d'erreurs rencontrées", example=0)
+    error: Optional[str] = Field(None, description="Message d'erreur si échec")
+
+class IngestWTTJResponse(BaseModel):
+    """Résultat d'une opération d'ingestion Welcome to the Jungle"""
+    success: bool = Field(..., description="Succès de l'opération")
+    message: str = Field(..., description="Message descriptif du résultat")
+    run_id: Optional[str] = Field(None, description="Identifiant unique du run", example="20260223T120000Z")
+    dt: Optional[str] = Field(None, description="Date de l'ingestion", example="2026-02-23")
+    mode: Optional[str] = Field(None, description="Mode d'ingestion (new, resume, incremental)", example="new")
+    total_processed: Optional[int] = Field(None, description="Nombre total d'URLs traitées", example=1500)
+    total_written: Optional[int] = Field(None, description="Nombre total de records écrits", example=1500)
+    elapsed_s: Optional[float] = Field(None, description="Durée totale en secondes", example=600.5)
+    jobs: Optional[Dict[str, Any]] = Field(None, description="Statistiques segment jobs")
+    companies: Optional[Dict[str, Any]] = Field(None, description="Statistiques segment companies")
     error: Optional[str] = Field(None, description="Message d'erreur si échec")
 
 @app.on_event("startup")
@@ -200,6 +215,68 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
                 }
             })
             logger.info(f"[{task_id}] Ingestion terminée: {result.get('written')} offres")
+        else:
+            ACTIVE_TASKS[task_id].update({
+                "status": "failed",
+                "progress": "N/A",
+                "message": result.get("message", "Échec de l'ingestion"),
+                "completed_at": datetime.now(),
+                "error": result.get("error")
+            })
+            logger.error(f"[{task_id}] Échec: {result.get('error')}")
+    except Exception as e:
+        ACTIVE_TASKS[task_id].update({
+            "status": "failed",
+            "progress": "N/A",
+            "message": f"Erreur: {str(e)}",
+            "completed_at": datetime.now(),
+            "error": str(e)
+        })
+        logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
+
+
+def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_companies: int):
+    """Wrapper pour l'ingestion WTTJ avec mise à jour du statut"""
+    
+    def update_progress(segment: str, current: int, total: int, ok: int, ko: int):
+        """Callback pour mettre à jour la progression en temps réel"""
+        progress_pct = int((current / total) * 100) if total > 0 else 0
+        ACTIVE_TASKS[task_id].update({
+            "progress": f"{progress_pct}%",
+            "message": f"Segment {segment}: {current}/{total} URLs traitées (✓{ok} ✗{ko})",
+            "current_segment": segment,
+            "current_url": current,
+            "total_urls": total
+        })
+    
+    try:
+        logger.info(f"[{task_id}] Début de l'ingestion Welcome to the Jungle")
+        result = ingest_welcome_to_the_jungle(
+            storage=None,
+            mode=mode,
+            max_jobs=max_jobs,
+            max_companies=max_companies,
+            progress_callback=update_progress
+        )
+        
+        if result["success"]:
+            ACTIVE_TASKS[task_id].update({
+                "status": "completed",
+                "progress": "100%",
+                "message": result["message"],
+                "completed_at": datetime.now(),
+                "result": {
+                    "run_id": result.get("run_id"),
+                    "dt": result.get("dt"),
+                    "mode": result.get("mode"),
+                    "total_processed": result.get("total_processed"),
+                    "total_written": result.get("total_written"),
+                    "elapsed_s": result.get("elapsed_s"),
+                    "jobs": result.get("jobs"),
+                    "companies": result.get("companies")
+                }
+            })
+            logger.info(f"[{task_id}] Ingestion terminée: {result.get('total_written')} records")
         else:
             ACTIVE_TASKS[task_id].update({
                 "status": "failed",
@@ -412,6 +489,16 @@ Utile pour découvrir les endpoints d'ingestion et monitorer les tâches en cour
                     "max_rome_codes (int, optionnel)",
                     "window_days (int, optionnel)"
                 ]
+            },
+            {
+                "endpoint": "POST /ingest/welcome-to-jungle",
+                "description": "Ingestion des offres d'emploi Welcome to the Jungle (couche bronze)",
+                "params": [
+                    "background (bool, optionnel)",
+                    "mode (str, optionnel: new/resume/incremental)",
+                    "max_jobs (int, optionnel)",
+                    "max_companies (int, optionnel)"
+                ]
             }
         ]
     }
@@ -554,6 +641,116 @@ dans le système de storage configuré (local ou S3/MinIO).
             
         except Exception as e:
             logger.error(f"Erreur lors de l'ingestion des offres: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Erreur lors de l'ingestion: {str(e)}"
+            )
+
+
+@app.post(
+    "/ingest/welcome-to-jungle",
+    response_model=IngestWTTJResponse,
+    tags=["Ingestion"],
+    summary="Ingérer les offres Welcome to the Jungle",
+    description="""Déclenche l'ingestion des offres d'emploi Welcome to the Jungle en couche bronze.
+
+Cette opération collecte les URLs depuis les sitemaps et extrait les données
+des pages jobs et companies.
+
+**Modes d'exécution:**
+
+- **Synchrone** (background=false): Attend la fin complète de l'ingestion
+- **Asynchrone** (background=true): Lance l'ingestion en arrière-plan
+
+**Modes d'ingestion:**
+
+- **new**: Nouveau run avec run_id généré, pas de skip
+- **resume**: Reprend un run existant (nécessite run_id)  
+- **incremental**: Skip les URLs déjà traitées dans un run précédent
+
+**Paramètres de contrôle:**
+
+- **max_jobs**: Limite le nombre de jobs à traiter (0 = tous)
+- **max_companies**: Limite le nombre de companies à traiter (0 = tous)
+
+**Utilisation:**
+
+```bash
+# Ingestion complète en arrière-plan
+curl -X POST "http://localhost:8000/ingest/welcome-to-jungle?background=true"
+
+# Test avec 100 jobs et 50 companies
+curl -X POST "http://localhost:8000/ingest/welcome-to-jungle?background=true&max_jobs=100&max_companies=50"
+```
+"""
+)
+async def ingest_wttj_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(False, description="Lancer en arrière-plan"),
+    mode: str = Query("new", description="Mode d'ingestion (new, resume, incremental)"),
+    max_jobs: int = Query(0, description="Limiter le nombre de jobs (0 = tous)"),
+    max_companies: int = Query(0, description="Limiter le nombre de companies (0 = tous)")
+):
+    """Ingestion des offres d'emploi Welcome to the Jungle en couche bronze.
+
+Collecte les URLs depuis les sitemaps et extrait les données structurées
+des pages jobs et companies pour stockage en bronze.
+"""
+    logger.info(f"Requête d'ingestion WTTJ reçue (background={background}, mode={mode}, max_jobs={max_jobs}, max_companies={max_companies})")
+    
+    if background:
+        # Générer un task_id unique
+        task_id = f"wttj-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+        
+        # Enregistrer la tâche
+        ACTIVE_TASKS[task_id] = {
+            "operation": "ingest_welcome_to_jungle",
+            "status": "running",
+            "started_at": datetime.now(),
+            "progress": "0%",
+            "message": f"Ingestion WTTJ en cours (mode: {mode}, jobs: {max_jobs or 'tous'}, companies: {max_companies or 'tous'})...",
+            "params": {
+                "mode": mode,
+                "max_jobs": max_jobs,
+                "max_companies": max_companies
+            }
+        }
+        
+        # Lancer en arrière-plan avec wrapper
+        logger.info("Lancement de l'ingestion WTTJ en arrière-plan")
+        background_tasks.add_task(
+            run_welcome_to_jungle_task,
+            task_id,
+            mode,
+            max_jobs,
+            max_companies
+        )
+        
+        return IngestWTTJResponse(
+            success=True,
+            message=f"Ingestion WTTJ lancée en arrière-plan (task_id: {task_id})",
+            run_id=task_id
+        )
+    else:
+        # Exécution synchrone
+        try:
+            logger.info("Début de l'ingestion synchrone WTTJ")
+            result = ingest_welcome_to_the_jungle(
+                storage=None,
+                mode=mode,
+                max_jobs=max_jobs,
+                max_companies=max_companies
+            )
+            
+            if result["success"]:
+                logger.info(f"Ingestion réussie: {result.get('total_written')} records")
+            else:
+                logger.error(f"Échec de l'ingestion: {result.get('error')}")
+                
+            return IngestWTTJResponse(**result)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'ingestion WTTJ: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de l'ingestion: {str(e)}"

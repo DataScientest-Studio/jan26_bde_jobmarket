@@ -35,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Callable
 from tqdm import tqdm  
 
 import requests
@@ -60,6 +60,26 @@ def setup_logging() -> None:
 
 
 logger = logging.getLogger("wttj.ingest.bronze")
+
+# ----------------------------
+# Utility Functions
+# ----------------------------
+def utc_now_iso() -> str:
+    """Return current UTC timestamp in ISO 8601 format."""
+    return datetime.now(timezone.utc).isoformat()
+
+def run_id_utc() -> str:
+    """Generate a unique run ID based on current UTC time."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+def format_eta(seconds: float) -> str:
+    """Format seconds as HH:MM:SS."""
+    if seconds <= 0:
+        return "00:00:00"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 # ----------------------------
 # HTTP Session with Retry
@@ -403,7 +423,8 @@ def ingest_segment(
     limiter: RateLimiter,
     store_html_mode: str,
     skip_urls: Optional[Set[str]] = None,
-) -> None:
+    progress_callback: Optional[Callable[[str, int, int, int, int], None]] = None,
+) -> Dict[str, Any]:
     """
     The function processes the URLs in a concurrent manner using a thread pool, while respecting the rate limiter. 
     It extracts the relevant data from each page, writes structured records to storage in chunks, and optionally stores the raw HTML for debugging. 
@@ -505,7 +526,14 @@ def ingest_segment(
             "written": 0,
             "updated_at": utc_now_iso(),
         })
-        return
+        return {
+            "segment": segment,
+            "processed": 0,
+            "written": 0,
+            "ok": 0,
+            "ko": 0,
+            "elapsed_s": 0.0
+        }
  
     # We use a ThreadPoolExecutor to fetch pages concurrently. 
     # For each URL, we submit a fetch_page task to the pool, which will return a FetchResult when done.
@@ -573,6 +601,10 @@ def ingest_segment(
             if len(buffer) >= part_size:
                 flush_buffer()
 
+            # Callback de progression
+            if progress_callback:
+                progress_callback(segment, processed, total_urls, ok, ko)
+
             # Progress (% + ETA)
             if processed % int(os.getenv("WTTJ_LOG_EACH_XX_URL", "100")) == 0 or processed == total_urls:
                 elapsed = time.time() - start_time
@@ -602,12 +634,187 @@ def ingest_segment(
         "Done segment=%s | processed=%d | written=%d | ok=%d ko=%d | total_time=%s",
         segment, processed, total_written, ok, ko, format_eta(total_elapsed)
     )
+    
+    return {
+        "segment": segment,
+        "processed": processed,
+        "written": total_written,
+        "ok": ok,
+        "ko": ko,
+        "elapsed_s": total_elapsed
+    }
 
 
 # ----------------------------
-# Main (new / resume / incremental)
+# Service function for API
 # ----------------------------
-def main() -> None:
+def ingest_welcome_to_the_jungle(
+    storage=None,
+    mode: str = None,
+    max_jobs: int = None,
+    max_companies: int = None,
+    store_html_mode: str = None,
+    provided_run_id: str = None,
+    resume_from_run_id: str = None,
+    progress_callback: Optional[Callable[[str, int, int, int, int], None]] = None
+) -> Dict[str, Any]:
+    """
+    Service d'ingestion des données Welcome to the Jungle en couche bronze.
+    
+    Args:
+        storage: Storage backend (optionnel, créé depuis env si non fourni)
+        mode: Mode d'ingestion (new, resume, incremental)
+        max_jobs: Limiter le nombre de jobs à traiter (0 = tous)
+        max_companies: Limiter le nombre de companies à traiter (0 = tous)
+        store_html_mode: Mode de stockage HTML (never, always, on_error)
+        provided_run_id: Run ID à utiliser en mode resume
+        resume_from_run_id: Run ID source pour mode incremental
+        progress_callback: Callback appelé avec (segment, current, total, ok, ko)
+        
+    Returns:
+        Dict avec le statut de l'opération et les statistiques détaillées
+    """
+    try:
+        setup_logging()
+        
+        dt = os.getenv("DT") or datetime.now().date().isoformat()
+        
+        # Get configuration with defaults
+        mode = mode or os.getenv("WTTJ_RUN_MODE", "new").lower().strip()
+        provided_run_id = provided_run_id or (os.getenv("WTTJ_RUN_ID") or "").strip()
+        resume_from_run_id = resume_from_run_id or (os.getenv("WTTJ_RESUME_FROM_RUN_ID") or "").strip()
+        store_html_mode = store_html_mode or os.getenv("WTTJ_STORE_HTML", "on_error")
+        max_jobs = max_jobs if max_jobs is not None else int(os.getenv("WTTJ_MAX_JOBS", "0"))
+        max_companies = max_companies if max_companies is not None else int(os.getenv("WTTJ_MAX_COMPANIES", "0"))
+        
+        if mode == "resume":
+            if not provided_run_id:
+                return {
+                    "success": False,
+                    "message": "Mode resume nécessite un run_id",
+                    "error": "WTTJ_RUN_MODE=resume requires WTTJ_RUN_ID"
+                }
+            run_id = provided_run_id
+        else:
+            run_id = run_id_utc()
+        
+        rps = float(os.getenv("WTTJ_RPS", "2"))
+        burst = int(os.getenv("WTTJ_BURST", "4"))
+        limiter = RateLimiter(rate=rps, capacity=burst, logger=logger)
+        
+        session = build_session()
+        
+        # Initialize storage if not provided
+        if storage is None:
+            storage = get_storage_from_env(
+                os.getenv("WTTJ_DATA_DIR", "data/welcometothejungle"),
+                os.getenv("S3_PREFIX_WTTJ", "welcometothejungle"),
+            )
+        
+        logger.info("Début de l'ingestion WTTJ - run_id=%s mode=%s", run_id, mode)
+        
+        started = time.time()
+        
+        # Collect URLs from sitemaps
+        logger.info("Récupération des URLs depuis les sitemaps...")
+        jobs_set, companies_set = collect_urls(session, limiter)
+        
+        jobs = list(jobs_set)
+        companies = list(companies_set)
+        
+        if max_jobs > 0:
+            jobs = jobs[:max_jobs]
+            logger.info(f"Limitation à {max_jobs} jobs")
+        if max_companies > 0:
+            companies = companies[:max_companies]
+            logger.info(f"Limitation à {max_companies} companies")
+        
+        # Skip logic
+        skip_jobs: Set[str] = set()
+        skip_companies: Set[str] = set()
+        
+        if mode == "resume":
+            jobs_prefix = f"bronze/dt={dt}/run_id={run_id}/segment=jobs_raw/"
+            comp_prefix = f"bronze/dt={dt}/run_id={run_id}/segment=companies_raw/"
+            skip_jobs = load_processed_urls(storage, jobs_prefix)
+            skip_companies = load_processed_urls(storage, comp_prefix)
+            logger.info("Resume mode | already_done jobs=%d | companies=%d", len(skip_jobs), len(skip_companies))
+        
+        elif mode == "incremental":
+            if not resume_from_run_id:
+                return {
+                    "success": False,
+                    "message": "Mode incremental nécessite un run_id source",
+                    "error": "WTTJ_RUN_MODE=incremental requires WTTJ_RESUME_FROM_RUN_ID"
+                }
+            jobs_prefix = f"bronze/dt={dt}/run_id={resume_from_run_id}/segment=jobs_raw/"
+            comp_prefix = f"bronze/dt={dt}/run_id={resume_from_run_id}/segment=companies_raw/"
+            skip_jobs = load_processed_urls(storage, jobs_prefix)
+            skip_companies = load_processed_urls(storage, comp_prefix)
+            logger.info(
+                "Incremental mode | base_run_id=%s | skip jobs=%d | companies=%d",
+                resume_from_run_id, len(skip_jobs), len(skip_companies)
+            )
+        
+        logger.info("Final URL counts | jobs=%d | companies=%d", len(jobs), len(companies))
+        
+        # Process jobs segment
+        jobs_result = ingest_segment(
+            dt=dt,
+            run_id=run_id,
+            segment="jobs",
+            urls=jobs,
+            storage=storage,
+            session=session,
+            limiter=limiter,
+            store_html_mode=store_html_mode,
+            skip_urls=skip_jobs,
+            progress_callback=progress_callback
+        )
+        
+        # Process companies segment
+        companies_result = ingest_segment(
+            dt=dt,
+            run_id=run_id,
+            segment="companies",
+            urls=companies,
+            storage=storage,
+            session=session,
+            limiter=limiter,
+            store_html_mode=store_html_mode,
+            skip_urls=skip_companies,
+            progress_callback=progress_callback
+        )
+        
+        elapsed = time.time() - started
+        
+        logger.info("Run done | mode=%s | dt=%s | run_id=%s", mode, dt, run_id)
+        
+        return {
+            "success": True,
+            "message": f"Ingestion WTTJ terminée avec succès (run_id: {run_id})",
+            "run_id": run_id,
+            "dt": dt,
+            "mode": mode,
+            "jobs": jobs_result,
+            "companies": companies_result,
+            "elapsed_s": elapsed,
+            "total_processed": jobs_result["processed"] + companies_result["processed"],
+            "total_written": jobs_result["written"] + companies_result["written"]
+        }
+    
+    except Exception as e:
+        logger.error(f"Erreur lors de l'ingestion WTTJ: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": "Erreur lors de l'ingestion WTTJ",
+            "error": str(e)
+        }
+
+# ----------------------------
+# Main CLI (new / resume / incremental)
+# ----------------------------
+def main_cli() -> None:
     setup_logging()
 
     dt = os.getenv("DT") or datetime.now().date().isoformat()
@@ -716,4 +923,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main_cli()
