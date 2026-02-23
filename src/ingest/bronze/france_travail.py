@@ -2,15 +2,18 @@ import os
 import re
 import time
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, Optional, Callable
 
 from termcolor import colored
 
 from src.ingest.clients.france_travail_client import FranceTravailClient
 
 from src.storage.storage import get_storage_from_env, Storage
+
+logger = logging.getLogger(__name__)
 
 CONTENT_RANGE_RE = re.compile(r"offres\s+(\d+)-(\d+)/(\d+)", re.IGNORECASE)
 
@@ -547,149 +550,213 @@ def extract_and_store_by_windows(
     }
 
 
-def main() -> None:
-    #Initialize the storage backend based on environment variables, and create a client for the France Travail API.
-    storage = get_storage_from_env(os.getenv("FT_DATA_DIR", "data/france_travail"),
-                                   os.getenv("S3_PREFIX_FT", "france_travail"))
-    client = FranceTravailClient()
-    # We generate a unique run ID and get the current date in UTC for partitioning.
-    dt = utc_dt_str()
-    run_id = utc_run_id()
+def ingest_france_travail_offers(
+    storage: Storage = None,
+    client: FranceTravailClient = None,
+    window_days: int = None,
+    max_windows: int = None,
+    binary_split_min_seconds: int = None,
+    max_rome_codes: int = None,
+    progress_callback: Optional[Callable[[int, int, str, str], None]] = None
+) -> Dict[str, Any]:
+    """
+    Service d'ingestion des offres d'emploi France Travail en couche bronze.
     
-    # We read the configuration parameters for the window-based extraction method from environment variables, with default values if not set.
-    window_days = int(os.getenv("FT_WINDOW_DAYS", "7"))
-    max_windows = int(os.getenv("FT_MAX_WINDOWS", "260"))
-    # binary_split_min_seconds parameter is a safeguard to prevent infinite splitting of windows that still exceed MAX_RETRIEVABLE but are already very small (e.g. a few seconds).
-    binary_split_min_seconds = int(os.getenv("FT_BINARY_SPLIT_MIN_SECONDS", "3600"))
-
-    # Parameter to limit the number of ROME codes processed, useful for testing and partial ingest.
-    max_rome_codes = int(os.getenv("FT_MAX_ROME_CODES", "0"))
-
-    # We define the base query parameters that will be included in every API call, such as sorting by most recent offers.
-    base_params: Dict[str, Any] = {"sort": "1"}
-
-    #  We fetch the list of ROME metiers from the API, which will be the basis for our queries. 
-    # Each ROME code represents a specific job category, and we will extract offers for each of them.
-    rome_items = get_rome_metiers(client)
-
-    total_errors = 0
-    all_skipped_ranges: List[Dict[str, Any]] = []    
-
-    if max_rome_codes > 0:
-        rome_items = rome_items[:max_rome_codes]
-
-    per_rome_stats: List[Dict[str, Any]] = []
-    total_calls = 0
-    total_written = 0
-    started = time.time()
-
-    # Iterate over each ROME code, probe the total number of offers available, 
-    # and decide on the extraction method based on whether it exceeds the MAX_RETRIEVABLE threshold.
-    for rome in rome_items:
-        total_global = probe_total(client, {"codeROME": rome.code, **base_params})
-        print_rome_line(rome.code, total_global, rome.libelle)
-
-        # Depending on the total number of offers for this ROME code, we either :
-        #  - extract it directly using range-based pagination if it's within the retrievable limit,
-        #   - or we use the window-based extraction method to split it into time windows and possibly further split those windows if they still exceed the retrievable limit.
-        if total_global <= MAX_RETRIEVABLE:
-            res = extract_and_store_by_range(
-                client=client,
-                storage=storage,
-                dt=dt,
-                run_id=run_id,
-                code_rome=rome.code,
-                segment="global",
-                base_params=base_params,
-                page_size=150,
+    Args:
+        storage: Storage backend (optionnel, créé depuis env si non fourni)
+        client: Client France Travail (optionnel, créé si non fourni)
+        window_days: Taille des fenêtres temporelles en jours
+        max_windows: Nombre maximum de fenêtres
+        binary_split_min_seconds: Taille minimale de fenêtre pour split binaire
+        max_rome_codes: Limiter le nombre de codes ROME traités (0 = tous)
+        progress_callback: Callback appelé avec (current, total, rome_code, rome_label) à chaque progression
+        
+    Returns:
+        Dict avec le statut de l'opération et les statistiques détaillées
+    """
+    try:
+        # Initialize storage and client
+        if storage is None:
+            storage = get_storage_from_env(
+                os.getenv("FT_DATA_DIR", "data/france_travail"),
+                os.getenv("S3_PREFIX_FT", "france_travail")
             )
-
-            total_errors += res.get("errors", 0)
-            all_skipped_ranges.extend(res.get("skipped_ranges", []))            
-
-            stat = {
-                "code": rome.code,
-                "libelle": rome.libelle,
-                "total_global": total_global,
-                "mode": res["mode"],
-                "calls": res["calls"],
-                "written": res["written"],
-            }
-        else:
-            res = extract_and_store_by_windows(
-                client=client,
-                storage=storage,
-                dt=dt,
-                run_id=run_id,
-                code_rome=rome.code,
-                base_params=base_params,
-                total_global=total_global,
-                window_days=window_days,
-                max_windows=max_windows,
-                binary_split_min_seconds=binary_split_min_seconds,
-            )
-
+        
+        if client is None:
+            client = FranceTravailClient()
+        
+        # Get configuration with defaults
+        window_days = window_days or int(os.getenv("FT_WINDOW_DAYS", "7"))
+        max_windows = max_windows or int(os.getenv("FT_MAX_WINDOWS", "260"))
+        binary_split_min_seconds = binary_split_min_seconds or int(os.getenv("FT_BINARY_SPLIT_MIN_SECONDS", "3600"))
+        max_rome_codes = max_rome_codes if max_rome_codes is not None else int(os.getenv("FT_MAX_ROME_CODES", "0"))
+        
+        # Generate run metadata
+        dt = utc_dt_str()
+        run_id = utc_run_id()
+        
+        logger.info(f"Début de l'ingestion France Travail - run_id={run_id}")
+        
+        # Base query parameters
+        base_params: Dict[str, Any] = {"sort": "1"}
+        
+        # Fetch ROME codes
+        logger.info("Récupération de la liste des codes ROME...")
+        rome_items = get_rome_metiers(client)
+        
+        if max_rome_codes > 0:
+            rome_items = rome_items[:max_rome_codes]
+            logger.info(f"Limitation à {max_rome_codes} codes ROME")
+        
+        logger.info(f"Traitement de {len(rome_items)} codes ROME")
+        
+        # Process each ROME code
+        total_errors = 0
+        all_skipped_ranges: List[Dict[str, Any]] = []
+        per_rome_stats: List[Dict[str, Any]] = []
+        total_calls = 0
+        total_written = 0
+        started = time.time()
+        
+        for idx, rome in enumerate(rome_items, 1):
+            logger.info(f"[{idx}/{len(rome_items)}] Traitement {rome.code} - {rome.libelle}")
+            
+            # Callback de progression
+            if progress_callback:
+                progress_callback(idx, len(rome_items), rome.code, rome.libelle)
+            
+            total_global = probe_total(client, {"codeROME": rome.code, **base_params})
+            print_rome_line(rome.code, total_global, rome.libelle)
+            
+            if total_global <= MAX_RETRIEVABLE:
+                res = extract_and_store_by_range(
+                    client=client,
+                    storage=storage,
+                    dt=dt,
+                    run_id=run_id,
+                    code_rome=rome.code,
+                    segment="global",
+                    base_params=base_params,
+                    page_size=150,
+                )
+                
+                stat = {
+                    "code": rome.code,
+                    "libelle": rome.libelle,
+                    "total_global": total_global,
+                    "mode": res["mode"],
+                    "calls": res["calls"],
+                    "written": res["written"],
+                }
+            else:
+                res = extract_and_store_by_windows(
+                    client=client,
+                    storage=storage,
+                    dt=dt,
+                    run_id=run_id,
+                    code_rome=rome.code,
+                    base_params=base_params,
+                    total_global=total_global,
+                    window_days=window_days,
+                    max_windows=max_windows,
+                    binary_split_min_seconds=binary_split_min_seconds,
+                )
+                
+                stat = {
+                    "code": rome.code,
+                    "libelle": rome.libelle,
+                    "total_global": total_global,
+                    "mode": res["mode"],
+                    "window_days": res["window_days"],
+                    "windows_used": res["windows_used"],
+                    "sum_windows": res["sum_windows"],
+                    "calls": res["calls"],
+                    "written": res["written"],
+                }
+            
             total_errors += res.get("errors", 0)
             all_skipped_ranges.extend(res.get("skipped_ranges", []))
-
-            stat = {
-                "code": rome.code,
-                "libelle": rome.libelle,
-                "total_global": total_global,
-                "mode": res["mode"],
-                "window_days": res["window_days"],
-                "windows_used": res["windows_used"],
-                "sum_windows": res["sum_windows"],
-                "calls": res["calls"],
-                "written": res["written"],
-            }
-
-        per_rome_stats.append(stat)
-        total_calls += stat["calls"]
-        total_written += stat["written"]
-
-    elapsed = time.time() - started
-
-    # After processing all ROME codes, we prepare a comprehensive run payload
-    run_payload = {
-        "run_id": run_id,
-        "dt": dt,
-        "params": {
-            "window_days": window_days,
-            "max_windows": max_windows,
-            "binary_split_min_seconds": binary_split_min_seconds,
-            "max_rome_codes": max_rome_codes,
-            "max_retrievable": MAX_RETRIEVABLE,
-        },
-        "stats": {
+            per_rome_stats.append(stat)
+            total_calls += stat["calls"]
+            total_written += stat["written"]
+        
+        elapsed = time.time() - started
+        
+        # Prepare run payload
+        run_payload = {
+            "run_id": run_id,
+            "dt": dt,
+            "params": {
+                "window_days": window_days,
+                "max_windows": max_windows,
+                "binary_split_min_seconds": binary_split_min_seconds,
+                "max_rome_codes": max_rome_codes,
+                "max_retrievable": MAX_RETRIEVABLE,
+            },
+            "stats": {
+                "rome_processed": len(per_rome_stats),
+                "calls": total_calls,
+                "written": total_written,
+                "elapsed_s": round(elapsed, 2),
+                "errors": total_errors,
+                "skipped_ranges": len(all_skipped_ranges),
+            },
+            "storage": {
+                "backend": os.getenv("STORAGE_BACKEND", "local"),
+                "s3_bucket": os.getenv("S3_BUCKET", ""),
+                "s3_prefix": os.getenv("S3_PREFIX_FT", ""),
+                "local_root": os.getenv("FT_DATA_DIR", ""),
+            },
+            "errors": {
+                "total_errors": total_errors,
+                "skipped_ranges_count": len(all_skipped_ranges),
+                "skipped_ranges": all_skipped_ranges,
+            },
+            "per_rome": per_rome_stats,
+        }
+        
+        # Write run metadata
+        run_key = write_run_metadata(storage, run_id, run_payload)
+        
+        logger.info(f"Ingestion terminée: {total_written} offres écrites en {elapsed:.2f}s")
+        
+        return {
+            "success": True,
+            "run_id": run_id,
+            "dt": dt,
+            "run_key": run_key,
             "rome_processed": len(per_rome_stats),
             "calls": total_calls,
             "written": total_written,
             "elapsed_s": round(elapsed, 2),
             "errors": total_errors,
             "skipped_ranges": len(all_skipped_ranges),
-        },
-        "storage": {
-            "backend": os.getenv("STORAGE_BACKEND", "local"),
-            "s3_bucket": os.getenv("S3_BUCKET", ""),
-            "s3_prefix": os.getenv("S3_PREFIX_FT", ""),
-            "local_root": os.getenv("FT_DATA_DIR", ""),
-        },
-        "errors" :{
-            "total_errors": total_errors,
-            "skipped_ranges_count": len(all_skipped_ranges),
-            # store details (can be large; keep it but you can cap it if needed)
-            "skipped_ranges": all_skipped_ranges,
-        },
-        "per_rome": per_rome_stats,
-    }
+            "message": f"Ingestion réussie: {total_written} offres écrites, {len(per_rome_stats)} codes ROME traités en {elapsed:.2f}s",
+            "details": run_payload
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de l'ingestion France Travail: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Échec de l'ingestion: {e}"
+        }
 
-    run_key = write_run_metadata(storage, run_id, run_payload)
 
-    print(f"\nrun_id={run_id}")
-    print(f"calls={total_calls}\twritten={total_written}\telapsed_s={elapsed:.2f}")
-    print(f"run_json_key={run_key}")
+def main_cli() -> None:
+    """Point d'entrée CLI pour l'ingestion des offres France Travail."""
+    result = ingest_france_travail_offers()
+    
+    if result["success"]:
+        print(f"\n✅ {result['message']}")
+        print(f"run_id={result['run_id']}")
+        print(f"run_key={result['run_key']}")
+        print(f"calls={result['calls']}\twritten={result['written']}\telapsed_s={result['elapsed_s']:.2f}")
+    else:
+        print(f"\n❌ {result['message']}")
+        exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    main_cli()
