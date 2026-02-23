@@ -92,6 +92,7 @@ target/
 # Environments Bruno
 environments/*.bru
 exploration/api/francetravail/R/*
+ollama-data/
 
 # Local data storage for MinIO
 minio-data/
