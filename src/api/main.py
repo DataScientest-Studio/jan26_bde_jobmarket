@@ -1,16 +1,24 @@
 import os
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
-from pydantic import BaseModel, Field
 
-# IMPORTANT: import depuis ton module de prédiction
-# ajuste le chemin selon ton projet (ex: from src.models.predict_model import ...)
 from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
 from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.france_travail import ingest_france_travail_offers
 from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
+from src.data.make_merge_dataset_ft_wttj_with_rome import merge_ft_wttj_datasets
+
+# Import des modèles API
+from src.api.models import (
+    PredictRequest,
+    PredictResponse,
+    IngestResponse,
+    IngestOffersResponse,
+    IngestWTTJResponse,
+    MergeDatasetResponse
+)
 
 # Configuration du logging
 logging.basicConfig(
@@ -51,71 +59,6 @@ ARTIFACTS: Dict[str, Any] = {}
 # Tracking des tâches d'ingestion en cours
 ACTIVE_TASKS: Dict[str, Dict[str, Any]] = {}
 
-
-class PredictRequest(BaseModel):
-    """Requête de prédiction de code ROME pour une offre d'emploi"""
-    intitule: Optional[str] = Field(None, description="Titre du poste", example="Développeur Python Senior")
-    description: Optional[str] = Field(None, description="Description détaillée du poste", example="Développement d'applications web avec Python, FastAPI, PostgreSQL")
-    competences: Optional[List[str]] = Field(None, description="Liste des compétences techniques", example=["Python", "FastAPI", "SQL", "Docker"])
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "intitule": "Data Scientist Senior",
-                "description": "Analyse de données, machine learning, déploiement de modèles en production",
-                "competences": ["Python", "Scikit-learn", "TensorFlow", "SQL"]
-            }
-        }
-
-
-class PredictResponse(BaseModel):
-    """Résultat de la prédiction avec les codes ROME les plus probables"""
-    model_name: Optional[str] = Field(None, description="Nom du modèle utilisé")
-    model_version: Optional[str] = Field(None, description="Version du modèle")
-    rome_pred: str = Field(..., description="Code ROME prédit (le plus probable)", example="M1805")
-    rome_label: Optional[str] = Field(None, description="Libellé du code ROME prédit", example="Études et développement informatique")
-    top_k: List[dict] = Field(..., description="Top K prédictions avec scores", example=[
-        {"rome_code": "M1805", "score": 0.89, "label": "Études et développement informatique"},
-        {"rome_code": "M1806", "score": 0.76, "label": "Conseil et maîtrise d'ouvrage en systèmes d'information"}
-    ])
-
-
-class IngestResponse(BaseModel):
-    """Résultat d'une opération d'ingestion de données"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: str = Field(..., description="Message descriptif du résultat")
-    key: Optional[str] = Field(None, description="Clé de stockage des données", example="bronze/rome/rome_metiers.jsonl")
-    records_count: Optional[int] = Field(None, description="Nombre total de codes ROME", example=532)
-    records_written: Optional[int] = Field(None, description="Nombre d'enregistrements écrits", example=532)
-    error: Optional[str] = Field(None, description="Message d'erreur si échec")
-
-
-class IngestOffersResponse(BaseModel):
-    """Résultat d'une opération d'ingestion des offres d'emploi"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: str = Field(..., description="Message descriptif du résultat")
-    run_id: Optional[str] = Field(None, description="Identifiant unique du run", example="20260223T120000Z")
-    run_key: Optional[str] = Field(None, description="Clé des métadonnées du run")
-    rome_processed: Optional[int] = Field(None, description="Nombre de codes ROME traités", example=532)
-    calls: Optional[int] = Field(None, description="Nombre d'appels API effectués", example=1500)
-    written: Optional[int] = Field(None, description="Nombre total d'offres écrites", example=15000)
-    elapsed_s: Optional[float] = Field(None, description="Durée de l'ingestion en secondes", example=3600.5)
-    errors: Optional[int] = Field(None, description="Nombre d'erreurs rencontrées", example=0)
-    error: Optional[str] = Field(None, description="Message d'erreur si échec")
-
-class IngestWTTJResponse(BaseModel):
-    """Résultat d'une opération d'ingestion Welcome to the Jungle"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: str = Field(..., description="Message descriptif du résultat")
-    run_id: Optional[str] = Field(None, description="Identifiant unique du run", example="20260223T120000Z")
-    dt: Optional[str] = Field(None, description="Date de l'ingestion", example="2026-02-23")
-    mode: Optional[str] = Field(None, description="Mode d'ingestion (new, resume, incremental)", example="new")
-    total_processed: Optional[int] = Field(None, description="Nombre total d'URLs traitées", example=1500)
-    total_written: Optional[int] = Field(None, description="Nombre total de records écrits", example=1500)
-    elapsed_s: Optional[float] = Field(None, description="Durée totale en secondes", example=600.5)
-    jobs: Optional[Dict[str, Any]] = Field(None, description="Statistiques segment jobs")
-    companies: Optional[Dict[str, Any]] = Field(None, description="Statistiques segment companies")
-    error: Optional[str] = Field(None, description="Message d'erreur si échec")
 
 @app.on_event("startup")
 def _startup_load_model():
@@ -297,6 +240,68 @@ def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_compa
         logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
 
 
+def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix: Optional[str], 
+                             output_prefix: Optional[str], output_format: str):
+    """Wrapper pour la fusion des datasets avec mise à jour du statut"""
+    
+    def update_progress(step: str, message: str):
+        """Callback pour mettre à jour la progression en temps réel"""
+        ACTIVE_TASKS[task_id].update({
+            "progress": step,
+            "message": message,
+            "current_step": step
+        })
+    
+    try:
+        logger.info(f"[{task_id}] Début de la fusion FT + WTTJ")
+        result = merge_ft_wttj_datasets(
+            ft_prefix=ft_prefix,
+            wttj_prefix=wttj_prefix,
+            output_prefix=output_prefix,
+            output_format=output_format,
+            progress_callback=update_progress
+        )
+        
+        if result["success"]:
+            ACTIVE_TASKS[task_id].update({
+                "status": "completed",
+                "progress": "100%",
+                "message": result["message"],
+                "completed_at": datetime.now(),
+                "result": {
+                    "output_key": result.get("output_key"),
+                    "output_format": result.get("output_format"),
+                    "ft_prefix": result.get("ft_prefix"),
+                    "wttj_prefix": result.get("wttj_prefix"),
+                    "total_offers": result.get("total_offers"),
+                    "ft_offers": result.get("ft_offers"),
+                    "wttj_offers": result.get("wttj_offers"),
+                    "offers_with_rome": result.get("offers_with_rome"),
+                    "unique_rome_codes": result.get("unique_rome_codes"),
+                    "elapsed_s": result.get("elapsed_s")
+                }
+            })
+            logger.info(f"[{task_id}] Fusion terminée: {result.get('total_offers')} offres")
+        else:
+            ACTIVE_TASKS[task_id].update({
+                "status": "failed",
+                "progress": "N/A",
+                "message": result.get("message", "Échec de la fusion"),
+                "completed_at": datetime.now(),
+                "error": result.get("error")
+            })
+            logger.error(f"[{task_id}] Échec: {result.get('error')}")
+    except Exception as e:
+        ACTIVE_TASKS[task_id].update({
+            "status": "failed",
+            "progress": "N/A",
+            "message": f"Erreur: {str(e)}",
+            "completed_at": datetime.now(),
+            "error": str(e)
+        })
+        logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
+
+
 @app.get(
     "/health",
     tags=["Monitoring"],
@@ -462,6 +467,13 @@ Utile pour découvrir les endpoints d'ingestion et monitorer les tâches en cour
     for task_id in tasks_to_remove:
         del ACTIVE_TASKS[task_id]
     
+    # Filtrer les tâches d'ingestion
+    ingestion_operations = [
+        "ingest_rome_metiers",
+        "ingest_france_travail_offers",
+        "ingest_welcome_to_jungle"
+    ]
+    
     return {
         "status": "ok",
         "active_tasks": [
@@ -474,6 +486,7 @@ Utile pour découvrir les endpoints d'ingestion et monitorer les tâches en cour
                 "message": task_info.get("message")
             }
             for task_id, task_info in ACTIVE_TASKS.items()
+            if task_info.get("operation") in ingestion_operations
         ],
         "available_operations": [
             {
@@ -505,20 +518,87 @@ Utile pour découvrir les endpoints d'ingestion et monitorer les tâches en cour
 
 
 @app.get(
-    "/ingest/tasks/{task_id}",
-    tags=["Ingestion"],
-    summary="Détails d'une tâche d'ingestion",
-    description="Récupère les informations détaillées d'une tâche d'ingestion spécifique"
+    "/data/status",
+    tags=["Data Processing"],
+    summary="Statut des opérations de traitement de données",
+    description="Liste toutes les opérations de data processing disponibles et affiche les tâches en cours"
 )
-def get_task_details(task_id: str):
-    """Retourne les détails complets d'une tâche d'ingestion.
+def get_data_status():
+    """Retourne la liste des opérations de data processing disponibles et les tâches actives.
+
+Utile pour découvrir les endpoints de traitement et monitorer les tâches en cours d'exécution.
+"""
+    # Nettoyer les tâches terminées depuis plus de 5 minutes
+    current_time = datetime.now()
+    tasks_to_remove = []
+    for task_id, task_info in ACTIVE_TASKS.items():
+        if task_info.get("status") == "completed":
+            completed_at = task_info.get("completed_at")
+            if completed_at and (current_time - completed_at).total_seconds() > 300:
+                tasks_to_remove.append(task_id)
+    
+    for task_id in tasks_to_remove:
+        del ACTIVE_TASKS[task_id]
+    
+    # Filtrer les tâches de data processing
+    data_operations = [
+        "merge_datasets"
+    ]
+    
+    return {
+        "status": "ok",
+        "active_tasks": [
+            {
+                "task_id": task_id,
+                "operation": task_info.get("operation"),
+                "status": task_info.get("status"),
+                "started_at": task_info.get("started_at").isoformat() if task_info.get("started_at") else None,
+                "progress": task_info.get("progress"),
+                "message": task_info.get("message")
+            }
+            for task_id, task_info in ACTIVE_TASKS.items()
+            if task_info.get("operation") in data_operations
+        ],
+        "available_operations": [
+            {
+                "endpoint": "POST /data/merge-datasets",
+                "description": "Fusion des datasets FT et WTTJ avec ROME codes",
+                "params": [
+                    "background (bool, optionnel)",
+                    "ft_prefix (str, optionnel)",
+                    "wttj_prefix (str, optionnel)",
+                    "output_prefix (str, optionnel)",
+                    "output_format (str, optionnel: parquet/jsonl/csv)"
+                ]
+            }
+        ]
+    }
+
+
+@app.get(
+    "/tasks/{task_id}",
+    tags=["Monitoring"],
+    summary="Détails d'une tâche",
+    description="Récupère les informations détaillées d'une tâche (ingestion, merge, etc.)"
+)
+def get_task_details_generic(task_id: str):
+    """Retourne les détails complets d'une tâche asynchrone.
 
 **Utilisation:**
 
 ```bash
-# Après avoir lancé une ingestion en arrière-plan, récupérer son statut
-curl http://localhost:8000/ingest/tasks/ft-offers-20260223T214500
+# Récupérer le statut d'une tâche d'ingestion
+curl http://localhost:8000/tasks/ft-offers-20260223T214500
+
+# Récupérer le statut d'une tâche de merge
+curl http://localhost:8000/tasks/merge-20260225T143000
 ```
+
+**Statuts possibles:**
+
+- `running`: Tâche en cours d'exécution
+- `completed`: Tâche terminée avec succès
+- `failed`: Tâche échouée
 """
     if task_id not in ACTIVE_TASKS:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
@@ -536,6 +616,28 @@ curl http://localhost:8000/ingest/tasks/ft-offers-20260223T214500
         "result": task_info.get("result"),
         "error": task_info.get("error")
     }
+
+
+@app.get(
+    "/ingest/tasks/{task_id}",
+    tags=["Ingestion"],
+    summary="Détails d'une tâche d'ingestion (déprécié)",
+    description="⚠️ Déprécié: Utiliser /tasks/{task_id} à la place. Récupère les informations détaillées d'une tâche d'ingestion spécifique",
+    deprecated=True
+)
+def get_task_details(task_id: str):
+    """Retourne les détails complets d'une tâche d'ingestion.
+
+⚠️ **Cet endpoint est déprécié**, utilisez `/tasks/{task_id}` à la place.
+
+**Utilisation:**
+
+```bash
+# Après avoir lancé une ingestion en arrière-plan, récupérer son statut
+curl http://localhost:8000/ingest/tasks/ft-offers-20260223T214500
+```
+"""
+    return get_task_details_generic(task_id)
 
 
 @app.post(
@@ -754,4 +856,128 @@ des pages jobs et companies pour stockage en bronze.
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de l'ingestion: {str(e)}"
+            )
+
+
+@app.post(
+    "/data/merge-datasets",
+    response_model=MergeDatasetResponse,
+    tags=["Data Processing"],
+    summary="Fusionner les datasets FT et WTTJ",
+    description="""Déclenche la fusion des datasets France Travail et Welcome to the Jungle.
+
+Cette opération lit les données des couches Bronze (FT) et Silver (WTTJ), les normalise,
+les fusionne et les déduplique pour créer un dataset d'entraînement unifié.
+
+**Modes d'exécution:**
+
+- **Synchrone** (background=false): Attend la fin complète de la fusion
+- **Asynchrone** (background=true): Lance la fusion en arrière-plan
+
+**Détection automatique:**
+
+Si les préfixes ne sont pas spécifiés, l'API détectera automatiquement les données les plus récentes.
+
+**Formats de sortie:**
+
+- **parquet**: Format binaire optimisé (recommandé)
+- **jsonl**: Format JSON Lines texte
+- **csv**: Format CSV traditionnel
+
+**Utilisation:**
+
+```bash
+# Fusion complète en arrière-plan avec détection auto
+curl -X POST "http://localhost:8000/data/merge-datasets?background=true"
+
+# Fusion avec préfixes spécifiques
+curl -X POST "http://localhost:8000/data/merge-datasets?ft_prefix=bronze/offers&wttj_prefix=silver/jobs"
+
+# Fusion avec format de sortie CSV
+curl -X POST "http://localhost:8000/data/merge-datasets?output_format=csv"
+```
+"""
+)
+async def merge_datasets_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(False, description="Lancer en arrière-plan"),
+    ft_prefix: Optional[str] = Query(None, description="Préfixe des données FT (détection auto si non spécifié)"),
+    wttj_prefix: Optional[str] = Query(None, description="Préfixe des données WTTJ (détection auto si non spécifié)"),
+    output_prefix: Optional[str] = Query(None, description="Préfixe de sortie (défaut: datasets/ft_wttj_merged)"),
+    output_format: str = Query("parquet", description="Format de sortie (parquet, jsonl, csv)")
+):
+    """Fusion des datasets France Travail et Welcome to the Jungle.
+
+Lit les données des couches Bronze (FT) et Silver (WTTJ), normalise selon
+le modèle Silver_Datamodel, fusionne et déduplique pour créer un dataset unifié.
+
+**Étapes:**
+
+1. Détection automatique des préfixes si non spécifiés
+2. Lecture et normalisation des données FT Bronze
+3. Lecture et normalisation des données WTTJ Silver
+4. Fusion et déduplication par URL
+5. Calcul des statistiques
+6. Sauvegarde du dataset fusionné
+"""
+    logger.info(f"Requête de fusion datasets reçue (background={background}, format={output_format})")
+    
+    if background:
+        # Générer un task_id unique
+        task_id = f"merge-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+        
+        # Enregistrer la tâche
+        ACTIVE_TASKS[task_id] = {
+            "operation": "merge_datasets",
+            "status": "running",
+            "started_at": datetime.now(),
+            "progress": "0%",
+            "message": f"Fusion des datasets en cours (format: {output_format})...",
+            "params": {
+                "ft_prefix": ft_prefix,
+                "wttj_prefix": wttj_prefix,
+                "output_prefix": output_prefix,
+                "output_format": output_format
+            }
+        }
+        
+        # Lancer en arrière-plan avec wrapper
+        logger.info("Lancement de la fusion en arrière-plan")
+        background_tasks.add_task(
+            run_merge_datasets_task,
+            task_id,
+            ft_prefix,
+            wttj_prefix,
+            output_prefix,
+            output_format
+        )
+        
+        return MergeDatasetResponse(
+            success=True,
+            message=f"Fusion des datasets lancée en arrière-plan (task_id: {task_id})",
+            output_key=task_id
+        )
+    else:
+        # Exécution synchrone
+        try:
+            logger.info("Début de la fusion synchrone des datasets")
+            result = merge_ft_wttj_datasets(
+                ft_prefix=ft_prefix,
+                wttj_prefix=wttj_prefix,
+                output_prefix=output_prefix,
+                output_format=output_format
+            )
+            
+            if result["success"]:
+                logger.info(f"Fusion réussie: {result.get('total_offers')} offres fusionnées")
+            else:
+                logger.error(f"Échec de la fusion: {result.get('error')}")
+                
+            return MergeDatasetResponse(**result)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la fusion: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Erreur lors de la fusion: {str(e)}"
             )
