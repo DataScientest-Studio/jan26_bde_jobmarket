@@ -7,10 +7,20 @@ from typing import Any, Dict, Iterable, Optional
 import io
 # For pandas DataFrame type hint
 import pyarrow
+# Parquet support
+import pyarrow.parquet as pq
+
 import gzip
 from typing import Union
 
+try:
+    import orjson  # 10x faster JSON parser
+    USE_ORJSON = True
+except ImportError:
+    USE_ORJSON = False
+
 import boto3
+from botocore.config import Config
 from pyparsing import line
 import html
 
@@ -83,6 +93,13 @@ class Storage(ABC):
     @abstractmethod
     def write_parquet(self, key: str, df) -> None:
         """Write a parquet file at key."""
+        raise NotImplementedError
+    
+    @abstractmethod
+    def read_parquet(self, key: str):
+        """Read a parquet file from key and return a DataFrame."""
+        raise NotImplementedError
+        """Read a parquet file from key and return a DataFrame."""
         raise NotImplementedError
 
     @abstractmethod
@@ -180,25 +197,42 @@ class LocalStorage(Storage):
         if not path.exists():
             return []
         def gen():
-            with path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        #yield json.loads(line)
-                        # AJOUTE unescape
-                        clean_line = html.unescape(str(line))
-                        
-                        yield json.loads(clean_line)
-
-                    except json.JSONDecodeError:
-                        continue
+            if USE_ORJSON:
+                # orjson: read file as bytes (10x faster)
+                with path.open("rb") as f:
+                    for line_bytes in f:
+                        line_bytes = line_bytes.strip()
+                        if not line_bytes:
+                            continue
+                        try:
+                            yield orjson.loads(line_bytes)
+                        except Exception:
+                            continue
+            else:
+                # Fallback: standard json
+                with path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            clean_line = html.unescape(str(line))
+                            yield json.loads(clean_line)
+                        except json.JSONDecodeError:
+                            continue
         return gen()
 
     def write_parquet(self, key: str, df) -> None:
+        """Write a parquet file at key."""
         path = self._resolve(key)
         df.to_parquet(path, index=False)
+
+    def read_parquet(self, key: str):
+        """Read a parquet file from key and return a DataFrame."""
+        path = self._resolve(key)
+        if not path.exists():
+            raise FileNotFoundError(f"Key not found: {key}")
+        return pyarrow.parquet.read_table(path).to_pandas()
 
     def write_json(self, key: str, payload: Dict[str, Any]) -> None:
         """
@@ -264,6 +298,15 @@ class S3Storage(Storage):
         # Key "bronze/offers/..." -> "france_travail/bronze/offers/..."
         self.prefix = (prefix).strip("/") if prefix else None
 
+        # Configure connection pool size (default 50, was 10)
+        # Increase this when using parallel processing (ThreadPoolExecutor)
+        # Recommended: 2-3x the number of workers
+        max_pool = int(os.getenv("S3_MAX_POOL_CONNECTIONS", "50"))
+        config = Config(
+            max_pool_connections=max_pool,
+            retries={"max_attempts": 3, "mode": "standard"}
+        )
+
         # boto3 S3 client configured for MinIO via endpoint_url
         self.client = boto3.client(
             "s3",
@@ -271,6 +314,7 @@ class S3Storage(Storage):
             aws_access_key_id=access_key or os.getenv("S3_ACCESS_KEY"),
             aws_secret_access_key=secret_key or os.getenv("S3_SECRET_KEY"),
             region_name=region or os.getenv("S3_REGION", "us-east-1"),
+            config=config,
         )
 
     def _full_key(self, key: str) -> str:
@@ -324,34 +368,79 @@ class S3Storage(Storage):
     def read_jsonl(self, key: str) -> Iterable[Dict[str, Any]]:
         full_key = self._full_key(key)
         resp = self.client.get_object(Bucket=self.bucket, Key=full_key)
-        body = resp["Body"].read().decode("utf-8", errors="replace")
+        body_bytes = resp["Body"].read()  # Read as bytes for orjson
 
         def gen():
-            for line in body.splitlines():
-                line = line.strip()
-                if not line:
+            # Split on newlines (keeping bytes for orjson)
+            for line_bytes in body_bytes.split(b'\n'):
+                if not line_bytes or line_bytes.isspace():
                     continue
                 try:
-                    #yield json.loads(line)
-                    # AJOUTE unescape
-                    clean_line = html.unescape(str(line))
-                    yield json.loads(clean_line)                    
-                except json.JSONDecodeError:
-                    print(f"⚠️ JSON decode error in {key}: {line[:100]}...")
+                    if USE_ORJSON:
+                        # orjson works with bytes directly (10x faster)
+                        yield orjson.loads(line_bytes)
+                    else:
+                        # Fallback to standard json
+                        line = line_bytes.decode('utf-8', errors='replace').strip()
+                        clean_line = html.unescape(line)
+                        yield json.loads(clean_line)
+                except Exception as e:
+                    # Catch any JSON decode error (orjson or standard json)
+                    # Log only first 100 chars to avoid spam
+                    try:
+                        preview = line_bytes[:100].decode('utf-8', errors='replace')
+                    except:
+                        preview = str(line_bytes[:100])
+                    # Silence errors in production, uncomment for debugging:
+                    # print(f"⚠️ JSON decode error in {key}: {preview}...")
                     continue
         return gen()
 
     def write_parquet(self, key: str, df) -> None:
+        """
+        Write a parquet file at key.
+        S3 does not support appending to existing objects.
+        Each write should be a complete file (e.g. part-000001.parquet).
+        We write to an in-memory buffer and upload it as a single object.
+        """
+        # Write to an in-memory buffer first, then upload to S3.
         buffer = io.BytesIO()
         df.to_parquet(buffer, index=False)
         buffer.seek(0)
 
+        # Upload the buffer content to S3 as a single object.
         self.client.put_object(
             Bucket=self.bucket,
             Key=self._full_key(key),
             Body=buffer.getvalue(),
             ContentType="application/octet-stream",
         )
+    
+    def read_parquet(self, key: str):
+        """
+        Read a parquet file from S3 and return a DataFrame.
+
+        Use PyArrow to read from the S3 object stream, then convert to pandas.
+        Pyarrow is efficient for reading Parquet files and 
+        can handle large files without loading everything in memory at once.
+
+        Alternatively, we could use Boto (download_fileobj) to download the file to a temporary location
+        and read with pandas, but this is less efficient for large files.
+        """
+        full_key = self._full_key(key)
+        
+        # Télécharger le fichier Parquet depuis S3
+        buffer = io.BytesIO()
+        self.client.download_fileobj(
+            Bucket=self.bucket,
+            Key=full_key,
+            Fileobj=buffer
+        )
+        buffer.seek(0)
+            
+        # Lire avec PyArrow puis convertir en pandas
+        table = pq.read_table(buffer)
+        return table.to_pandas()
 
     def write_json(self, key: str, payload: Dict[str, Any]) -> None:
         """
