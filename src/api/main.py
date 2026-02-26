@@ -1,5 +1,8 @@
 import os
 import logging
+import json
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
@@ -9,6 +12,8 @@ from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.france_travail import ingest_france_travail_offers
 from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
 from src.data.make_merge_dataset_ft_wttj_with_rome import merge_ft_wttj_datasets
+
+ENABLE_GRAFANA_LOGS = os.getenv("ENABLE_GRAFANA_LOGS", "false").lower() == "true"
 
 # Import des modèles API
 from src.api.models import (
@@ -20,12 +25,148 @@ from src.api.models import (
     MergeDatasetResponse
 )
 
-# Configuration du logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Filtre pour logs JSON uniquement (utilisé pour structured.jsonl)
+class JSONOnlyFilter(logging.Filter):
+    """Filtre qui ne laisse passer que les messages JSON"""
+    def filter(self, record):
+        # Ne garder que les messages qui ressemblent à du JSON
+        return record.getMessage().strip().startswith('{')
+
+# Configuration du logging avec rotation et support optionnel Grafana
+def setup_logging():
+    """Configure le logging avec rotation de fichiers et logs structurés optionnels"""
+    # Variables d'environnement pour la configuration
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_max_bytes = int(os.getenv("LOG_MAX_BYTES", 10*1024*1024))  # 10MB par défaut
+    log_backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+    
+    # Créer la structure de dossiers logs
+    Path("logs/api").mkdir(parents=True, exist_ok=True)
+    Path("logs/ingestion").mkdir(parents=True, exist_ok=True)
+    Path("logs/prediction").mkdir(parents=True, exist_ok=True)
+    
+    # Logger racine
+    root_logger = logging.getLogger(__name__)
+    root_logger.setLevel(getattr(logging, log_level))
+    
+    # Formatter standard (lisible)
+    standard_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # 1. Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(standard_formatter)
+    console_handler.setLevel(getattr(logging, log_level))
+    
+    # 2. Fichier principal de l'API
+    file_handler = RotatingFileHandler(
+        'logs/api/main.log',
+        maxBytes=log_max_bytes,
+        backupCount=log_backup_count,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(standard_formatter)
+    file_handler.setLevel(getattr(logging, log_level))
+    
+    # 3. Fichier d'erreurs global
+    error_handler = RotatingFileHandler(
+        'logs/api/errors.log',
+        maxBytes=log_max_bytes,
+        backupCount=log_backup_count,
+        encoding='utf-8'
+    )
+    error_handler.setFormatter(standard_formatter)
+    error_handler.setLevel(logging.ERROR)
+    
+    # Ajouter les handlers de base
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(error_handler)
+    
+    # 4. Logger dédié aux événements structurés (JSON uniquement)
+    structured_logger = logging.getLogger("structured")
+    structured_logger.setLevel(logging.INFO)
+    structured_logger.propagate = False
+    structured_logger.handlers.clear()
+
+    if ENABLE_GRAFANA_LOGS:
+        json_handler = logging.FileHandler('logs/api/structured.jsonl', encoding='utf-8')
+        json_handler.setFormatter(logging.Formatter('%(message)s'))
+        json_handler.setLevel(logging.INFO)
+        json_handler.name = "json_handler"
+        json_handler.addFilter(JSONOnlyFilter())  # Filtre JSON uniquement
+        structured_logger.addHandler(json_handler)
+        root_logger.info("📊 Logs structurés Grafana activés")
+    
+    root_logger.info(f"📝 Logging configuré - Niveau: {log_level}, Grafana: {ENABLE_GRAFANA_LOGS}")
+    
+    return root_logger
+
+
+def get_endpoint_logger(endpoint_name: str, category: str = "api") -> logging.Logger:
+    """Crée un logger spécifique pour un endpoint avec son propre fichier de log
+    
+    Args:
+        endpoint_name: Nom de l'endpoint (ex: 'rome_metiers', 'prediction', 'wttj')
+        category: Catégorie du log ('api', 'ingestion', 'prediction')
+    
+    Returns:
+        Logger configuré pour cet endpoint
+    """
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_max_bytes = int(os.getenv("LOG_MAX_BYTES", 10*1024*1024))
+    log_backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+    
+    # Créer un logger unique pour cet endpoint
+    logger_name = f"{__name__}.{category}.{endpoint_name}"
+    endpoint_logger = logging.getLogger(logger_name)
+    endpoint_logger.setLevel(getattr(logging, log_level))
+    
+    # Éviter la duplication si déjà configuré
+    if endpoint_logger.handlers:
+        return endpoint_logger
+    
+    # Formatter standard
+    standard_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Handler fichier spécifique à l'endpoint
+    log_path = f'logs/{category}/{endpoint_name}.log'
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=log_max_bytes,
+        backupCount=log_backup_count,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(standard_formatter)
+    file_handler.setLevel(getattr(logging, log_level))
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(standard_formatter)
+    console_handler.setLevel(getattr(logging, log_level))
+    
+    endpoint_logger.addHandler(file_handler)
+    endpoint_logger.addHandler(console_handler)
+    
+    # Éviter la propagation pour ne pas dupliquer dans les logs parents
+    endpoint_logger.propagate = False
+    
+    return endpoint_logger
+
+logger = setup_logging()
+structured_logger = logging.getLogger("structured")
+
+
+def emit_structured_log(payload: Dict[str, Any]) -> None:
+    """Route un événement JSON vers le logger structuré si Grafana est activé."""
+    if not ENABLE_GRAFANA_LOGS:
+        return
+    structured_logger.info(json.dumps(payload))
 
 MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
 TOP_K = int(os.getenv("TOP_K", "5"))
@@ -67,9 +208,24 @@ def _startup_load_model():
     Evite de recharger MinIO/joblib à chaque requête.
     """
     global ARTIFACTS
-    ARTIFACTS = load_artifacts()
-    # Optionnel: log
-    print(f"✅ API loaded model: {MODEL_NAME} / {ARTIFACTS['version']}")
+    logger.info("🚀 Démarrage de l'API - Chargement du modèle...")
+    try:
+        ARTIFACTS = load_artifacts()
+        logger.info(f"✅ Modèle chargé avec succès: {MODEL_NAME} v{ARTIFACTS['version']}")
+        
+        # Log structuré si Grafana activé
+        if ENABLE_GRAFANA_LOGS:
+            structured_log = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "event_type": "model_loaded",
+                "model_name": MODEL_NAME,
+                "version": ARTIFACTS['version']
+            }
+            emit_structured_log(structured_log)
+                    
+    except Exception as e:
+        logger.error(f"❌ Erreur lors du chargement du modèle: {e}", exc_info=True)
+        raise
 
 
 # =====================================
@@ -78,9 +234,18 @@ def _startup_load_model():
 
 def run_rome_metiers_task(task_id: str):
     """Wrapper pour l'ingestion des codes ROME avec mise à jour du statut"""
+    import time
+    
+    # Logger spécifique pour cette ingestion
+    task_logger = get_endpoint_logger('rome_metiers', 'ingestion')
+    
+    start_time = time.time()
+    
     try:
-        logger.info(f"[{task_id}] Début de l'ingestion des codes ROME")
+        task_logger.info(f"[{task_id}] 📥 Début de l'ingestion des codes ROME")
         result = ingest_rome_metiers()
+        
+        duration_sec = time.time() - start_time
         
         if result["success"]:
             ACTIVE_TASKS[task_id].update({
@@ -91,10 +256,27 @@ def run_rome_metiers_task(task_id: str):
                 "result": {
                     "records_count": result.get("records_count"),
                     "records_written": result.get("records_written"),
-                    "key": result.get("key")
+                    "key": result.get("key"),
+                    "duration_sec": round(duration_sec, 2)
                 }
             })
-            logger.info(f"[{task_id}] Ingestion terminée avec succès")
+            task_logger.info(
+                f"[{task_id}] ✅ Ingestion terminée avec succès - "
+                f"{result.get('records_count')} codes ROME en {duration_sec:.2f}s"
+            )
+            
+            # Log structuré si Grafana activé
+            if ENABLE_GRAFANA_LOGS:
+                structured_log = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "event_type": "ingestion_completed",
+                    "task_id": task_id,
+                    "task_type": "rome_metiers",
+                    "status": "success",
+                    "records_count": result.get("records_count"),
+                    "duration_sec": round(duration_sec, 2)
+                }
+                emit_structured_log(structured_log)
         else:
             ACTIVE_TASKS[task_id].update({
                 "status": "failed",
@@ -103,8 +285,23 @@ def run_rome_metiers_task(task_id: str):
                 "completed_at": datetime.now(),
                 "error": result.get("error")
             })
-            logger.error(f"[{task_id}] Échec de l'ingestion: {result.get('error')}")
+            task_logger.error(f"[{task_id}] ❌ Échec de l'ingestion: {result.get('error')}")
+            
+            # Log structuré si Grafana activé
+            if ENABLE_GRAFANA_LOGS:
+                structured_log = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "event_type": "ingestion_failed",
+                    "task_id": task_id,
+                    "task_type": "rome_metiers",
+                    "status": "failed",
+                    "error": result.get("error"),
+                    "duration_sec": round(duration_sec, 2)
+                }
+                emit_structured_log(structured_log)
+                        
     except Exception as e:
+        duration_sec = time.time() - start_time
         ACTIVE_TASKS[task_id].update({
             "status": "failed",
             "progress": "N/A",
@@ -112,12 +309,35 @@ def run_rome_metiers_task(task_id: str):
             "completed_at": datetime.now(),
             "error": str(e)
         })
-        logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
+        task_logger.error(
+            f"[{task_id}] ❌ Exception après {duration_sec:.2f}s: {e}", 
+            exc_info=True
+        )
+        
+        # Log structuré si Grafana activé
+        if ENABLE_GRAFANA_LOGS:
+            structured_log = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "event_type": "ingestion_error",
+                "task_id": task_id,
+                "task_type": "rome_metiers",
+                "status": "error",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "duration_sec": round(duration_sec, 2)
+            }
+            emit_structured_log(structured_log)
 
 
 def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: int, 
                                      binary_split_min_seconds: int, max_rome_codes: int):
     """Wrapper pour l'ingestion des offres FT avec mise à jour du statut"""
+    import time
+    
+    # Logger spécifique pour cette ingestion
+    task_logger = get_endpoint_logger('france_travail_offers', 'ingestion')
+    
+    start_time = time.time()
     
     def update_progress(current: int, total: int, rome_code: str, rome_label: str):
         """Callback pour mettre à jour la progression en temps réel"""
@@ -130,7 +350,7 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
         })
     
     try:
-        logger.info(f"[{task_id}] Début de l'ingestion des offres France Travail")
+        task_logger.info(f"[{task_id}] 📥 Début de l'ingestion des offres France Travail")
         result = ingest_france_travail_offers(
             storage=None,
             client=None,
@@ -138,8 +358,12 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
             max_windows=max_windows,
             binary_split_min_seconds=binary_split_min_seconds,
             max_rome_codes=max_rome_codes,
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            logger_override=task_logger,
+            task_id=task_id,
         )
+        
+        duration_sec = time.time() - start_time
         
         if result["success"]:
             ACTIVE_TASKS[task_id].update({
@@ -154,10 +378,26 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
                     "calls": result.get("calls"),
                     "written": result.get("written"),
                     "elapsed_s": result.get("elapsed_s"),
-                    "errors": result.get("errors")
+                    "errors": result.get("errors"),
+                    "duration_sec": round(duration_sec, 2)
                 }
             })
-            logger.info(f"[{task_id}] Ingestion terminée: {result.get('written')} offres")
+            task_logger.info(
+                f"[{task_id}] ✅ Ingestion terminée: {result.get('written')} offres en {duration_sec:.2f}s"
+            )
+            
+            # Log structuré si Grafana activé - via ROOT logger
+            if ENABLE_GRAFANA_LOGS:
+                structured_log = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "event_type": "ingestion_completed",
+                    "task_id": task_id,
+                    "task_type": "france_travail_offers",
+                    "status": "success",
+                    "records_count": result.get("written", 0),
+                    "duration_sec": round(duration_sec, 2)
+                }
+                emit_structured_log(structured_log)
         else:
             ACTIVE_TASKS[task_id].update({
                 "status": "failed",
@@ -166,8 +406,22 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
                 "completed_at": datetime.now(),
                 "error": result.get("error")
             })
-            logger.error(f"[{task_id}] Échec: {result.get('error')}")
+            task_logger.error(f"[{task_id}] ❌ Échec de l'ingestion: {result.get('error')}")
+            
+            # Log structuré si Grafana activé - via ROOT logger
+            if ENABLE_GRAFANA_LOGS:
+                structured_log = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "event_type": "ingestion_failed",
+                    "task_id": task_id,
+                    "task_type": "france_travail_offers",
+                    "status": "failed",
+                    "error": result.get("error"),
+                    "duration_sec": round(duration_sec, 2)
+                }
+                emit_structured_log(structured_log)
     except Exception as e:
+        duration_sec = time.time() - start_time
         ACTIVE_TASKS[task_id].update({
             "status": "failed",
             "progress": "N/A",
@@ -175,11 +429,31 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
             "completed_at": datetime.now(),
             "error": str(e)
         })
-        logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
+        task_logger.error(
+            f"[{task_id}] ❌ Exception après {duration_sec:.2f}s: {e}", 
+            exc_info=True
+        )
+        
+        # Log structuré si Grafana activé - via ROOT logger
+        if ENABLE_GRAFANA_LOGS:
+            structured_log = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "event_type": "ingestion_error",
+                "task_id": task_id,
+                "task_type": "france_travail_offers",
+                "status": "error",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "duration_sec": round(duration_sec, 2)
+            }
+            emit_structured_log(structured_log)
 
 
 def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_companies: int):
     """Wrapper pour l'ingestion WTTJ avec mise à jour du statut"""
+    
+    # Logger spécifique pour cette ingestion
+    task_logger = get_endpoint_logger('wttj', 'ingestion')
     
     def update_progress(segment: str, current: int, total: int, ok: int, ko: int):
         """Callback pour mettre à jour la progression en temps réel"""
@@ -193,7 +467,7 @@ def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_compa
         })
     
     try:
-        logger.info(f"[{task_id}] Début de l'ingestion Welcome to the Jungle")
+        task_logger.info(f"[{task_id}] 📥 Début de l'ingestion Welcome to the Jungle (mode={mode})")
         result = ingest_welcome_to_the_jungle(
             storage=None,
             mode=mode,
@@ -219,7 +493,7 @@ def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_compa
                     "companies": result.get("companies")
                 }
             })
-            logger.info(f"[{task_id}] Ingestion terminée: {result.get('total_written')} records")
+            task_logger.info(f"[{task_id}] ✅ Ingestion terminée: {result.get('total_written')} records")
         else:
             ACTIVE_TASKS[task_id].update({
                 "status": "failed",
@@ -228,7 +502,7 @@ def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_compa
                 "completed_at": datetime.now(),
                 "error": result.get("error")
             })
-            logger.error(f"[{task_id}] Échec: {result.get('error')}")
+            task_logger.error(f"[{task_id}] ❌ Échec: {result.get('error')}")
     except Exception as e:
         ACTIVE_TASKS[task_id].update({
             "status": "failed",
@@ -237,12 +511,15 @@ def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_compa
             "completed_at": datetime.now(),
             "error": str(e)
         })
-        logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
+        task_logger.error(f"[{task_id}] ❌ Exception: {e}", exc_info=True)
 
 
 def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix: Optional[str], 
                              output_prefix: Optional[str], output_format: str):
     """Wrapper pour la fusion des datasets avec mise à jour du statut"""
+    
+    # Logger spécifique pour cette opération
+    task_logger = get_endpoint_logger('merge_datasets', 'ingestion')
     
     def update_progress(step: str, message: str):
         """Callback pour mettre à jour la progression en temps réel"""
@@ -253,7 +530,7 @@ def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix:
         })
     
     try:
-        logger.info(f"[{task_id}] Début de la fusion FT + WTTJ")
+        task_logger.info(f"[{task_id}] 🔀 Début de la fusion FT + WTTJ")
         result = merge_ft_wttj_datasets(
             ft_prefix=ft_prefix,
             wttj_prefix=wttj_prefix,
@@ -281,7 +558,7 @@ def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix:
                     "elapsed_s": result.get("elapsed_s")
                 }
             })
-            logger.info(f"[{task_id}] Fusion terminée: {result.get('total_offers')} offres")
+            task_logger.info(f"[{task_id}] ✅ Fusion terminée: {result.get('total_offers')} offres")
         else:
             ACTIVE_TASKS[task_id].update({
                 "status": "failed",
@@ -290,7 +567,7 @@ def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix:
                 "completed_at": datetime.now(),
                 "error": result.get("error")
             })
-            logger.error(f"[{task_id}] Échec: {result.get('error')}")
+            task_logger.error(f"[{task_id}] ❌ Échec: {result.get('error')}")
     except Exception as e:
         ACTIVE_TASKS[task_id].update({
             "status": "failed",
@@ -299,7 +576,7 @@ def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix:
             "completed_at": datetime.now(),
             "error": str(e)
         })
-        logger.error(f"[{task_id}] Exception: {e}", exc_info=True)
+        task_logger.error(f"[{task_id}] ❌ Exception: {e}", exc_info=True)
 
 
 @app.get(
@@ -351,6 +628,11 @@ def predict(req: PredictRequest):
 }
 ```
 """
+    # Logger spécifique pour les prédictions
+    prediction_logger = get_endpoint_logger('rome_prediction', 'prediction')
+    
+    prediction_logger.info(f"Requête de prédiction - Intitulé: {req.intitule[:50] if req.intitule else 'N/A'}")
+    
     text = build_text_payload(
         intitule=req.intitule,
         description=req.description,
@@ -358,6 +640,9 @@ def predict(req: PredictRequest):
     )
 
     pred = predict_top_k(ARTIFACTS, text, top_k=TOP_K, rome_index=rome_model)
+    
+    prediction_logger.info(f"Prédiction réussie - Code ROME: {pred.get('code_rome', 'N/A')}")
+    
     return pred
 
 
@@ -426,18 +711,22 @@ dans le système de storage configuré (local ou S3/MinIO).
     else:
         # Exécution synchrone
         try:
-            logger.info("Début de l'ingestion synchrone")
+            # Utiliser le logger spécifique
+            task_logger = get_endpoint_logger('rome_metiers', 'ingestion')
+            
+            task_logger.info("📥 Début de l'ingestion synchrone des codes ROME")
+            
             result = ingest_rome_metiers()
             
             if result["success"]:
-                logger.info(f"Ingestion réussie: {result['records_count']} codes ROME")
+                task_logger.info(f"✅ Ingestion réussie: {result['records_count']} codes ROME")
             else:
-                logger.error(f"Échec de l'ingestion: {result.get('error')}")
+                task_logger.error(f"❌ Échec de l'ingestion: {result.get('error')}")
                 
             return IngestResponse(**result)
             
         except Exception as e:
-            logger.error(f"Erreur lors de l'ingestion: {e}", exc_info=True)
+            task_logger.error(f"❌ Erreur lors de l'ingestion: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de l'ingestion: {str(e)}"
@@ -724,25 +1013,29 @@ dans le système de storage configuré (local ou S3/MinIO).
     else:
         # Exécution synchrone
         try:
-            logger.info("Début de l'ingestion synchrone des offres")
+            # Utiliser le logger spécifique
+            task_logger = get_endpoint_logger('france_travail_offers', 'ingestion')
+            
+            task_logger.info("📥 Début de l'ingestion synchrone des offres France Travail")
             result = ingest_france_travail_offers(
                 storage=None,
                 client=None,
                 window_days=window_days,
                 max_windows=max_windows,
                 binary_split_min_seconds=binary_split_min_seconds,
-                max_rome_codes=max_rome_codes
+                max_rome_codes=max_rome_codes,
+                logger_override=task_logger
             )
             
             if result["success"]:
-                logger.info(f"Ingestion réussie: {result['written']} offres, {result['rome_processed']} codes ROME")
+                task_logger.info(f"✅ Ingestion réussie: {result['written']} offres, {result['rome_processed']} codes ROME")
             else:
-                logger.error(f"Échec de l'ingestion: {result.get('error')}")
+                task_logger.error(f"❌ Échec de l'ingestion: {result.get('error')}")
                 
             return IngestOffersResponse(**result)
             
         except Exception as e:
-            logger.error(f"Erreur lors de l'ingestion des offres: {e}", exc_info=True)
+            task_logger.error(f"❌ Erreur lors de l'ingestion des offres: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de l'ingestion: {str(e)}"
@@ -836,7 +1129,10 @@ des pages jobs et companies pour stockage en bronze.
     else:
         # Exécution synchrone
         try:
-            logger.info("Début de l'ingestion synchrone WTTJ")
+            # Utiliser le logger spécifique
+            task_logger = get_endpoint_logger('wttj', 'ingestion')
+            
+            task_logger.info("📥 Début de l'ingestion synchrone WTTJ")
             result = ingest_welcome_to_the_jungle(
                 storage=None,
                 mode=mode,
@@ -845,14 +1141,14 @@ des pages jobs et companies pour stockage en bronze.
             )
             
             if result["success"]:
-                logger.info(f"Ingestion réussie: {result.get('total_written')} records")
+                task_logger.info(f"✅ Ingestion réussie: {result.get('total_written')} records")
             else:
-                logger.error(f"Échec de l'ingestion: {result.get('error')}")
+                task_logger.error(f"❌ Échec de l'ingestion: {result.get('error')}")
                 
             return IngestWTTJResponse(**result)
             
         except Exception as e:
-            logger.error(f"Erreur lors de l'ingestion WTTJ: {e}", exc_info=True)
+            task_logger.error(f"❌ Erreur lors de l'ingestion WTTJ: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de l'ingestion: {str(e)}"
@@ -960,7 +1256,10 @@ le modèle Silver_Datamodel, fusionne et déduplique pour créer un dataset unif
     else:
         # Exécution synchrone
         try:
-            logger.info("Début de la fusion synchrone des datasets")
+            # Utiliser le logger spécifique
+            task_logger = get_endpoint_logger('merge_datasets', 'ingestion')
+            
+            task_logger.info("🔀 Début de la fusion synchrone des datasets")
             result = merge_ft_wttj_datasets(
                 ft_prefix=ft_prefix,
                 wttj_prefix=wttj_prefix,
@@ -969,14 +1268,14 @@ le modèle Silver_Datamodel, fusionne et déduplique pour créer un dataset unif
             )
             
             if result["success"]:
-                logger.info(f"Fusion réussie: {result.get('total_offers')} offres fusionnées")
+                task_logger.info(f"✅ Fusion réussie: {result.get('total_offers')} offres fusionnées")
             else:
-                logger.error(f"Échec de la fusion: {result.get('error')}")
+                task_logger.error(f"❌ Échec de la fusion: {result.get('error')}")
                 
             return MergeDatasetResponse(**result)
             
         except Exception as e:
-            logger.error(f"Erreur lors de la fusion: {e}", exc_info=True)
+            task_logger.error(f"❌ Erreur lors de la fusion: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de la fusion: {str(e)}"

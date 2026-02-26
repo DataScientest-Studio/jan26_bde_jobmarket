@@ -62,7 +62,7 @@ services:
       if [ -f requirements.txt ]; then pip install -r requirements.txt; fi &&
       start-notebook.sh --NotebookApp.token=$${JUPYTER_TOKEN}
       "
-  api:
+  jobmarket-api:
     build:
       context: .
       dockerfile: Dockerfile.api
@@ -77,5 +77,54 @@ services:
       # Override pour MinIO (accès interne Docker)
       STORAGE_BACKEND: s3
       S3_ENDPOINT_URL: http://minio:9000
-#    volumes:
-#      - ./src:/app/src
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs  # Logs accessibles sur l'hôte
+
+  # Stack de monitoring des logs (Grafana + Loki + Promtail)
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: jobmarket-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: jobmarket-promtail
+    depends_on:
+      - loki
+    volumes:
+      - ./logs:/logs:ro  # Lecture seule des logs
+      - ./monitoring/promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: jobmarket-grafana
+    depends_on:
+      - loki
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=${GF_USERS_ALLOW_SIGN_UP:-false}
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION=${GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION:-false}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./monitoring/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml
+      - ./monitoring/dashboard-api-monitoring.json:/etc/grafana/provisioning/dashboards/dashboard-api-monitoring.json
+      - ./monitoring/dashboard-realtime-ingestion.json:/etc/grafana/provisioning/dashboards/dashboard-realtime-ingestion.json
+      - ./monitoring/dashboard-ft-ingestion.json:/etc/grafana/provisioning/dashboards/dashboard-ft-ingestion.json
+      - ./monitoring/dashboard-wttj-ingestion.json:/etc/grafana/provisioning/dashboards/dashboard-wttj-ingestion.json
+
+volumes:
+  loki-data:
+  grafana-data:
