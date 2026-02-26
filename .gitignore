@@ -97,6 +97,9 @@ ollama-data/
 # Local data storage for MinIO
 minio-data/
 
+# pgAdmin configuration with passwords
+pgadmin/servers.json
+
 # Env folder for jobmarket
 env_job_market/
 logs/api/structured.jsonl
