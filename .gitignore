@@ -99,3 +99,4 @@ minio-data/
 
 # Env folder for jobmarket
 env_job_market/
+logs/api/structured.jsonl
