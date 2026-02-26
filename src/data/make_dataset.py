@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Iterable, Optional
 
 import pandas as pd
 
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
 from src.storage import get_storage_from_env
 
 OUTPUT_KEY = "gold/datasets/rome_dataset.parquet"

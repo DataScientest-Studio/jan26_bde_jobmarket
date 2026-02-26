@@ -45,8 +45,8 @@ from urllib3.util.retry import Retry
 from src.storage.storage import get_storage_from_env
 from src.ingest.tools.rate_limiter import RateLimiter
 
-from dotenv import load_dotenv
-load_dotenv()
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
 
 # ----------------------------
 # Logging
@@ -787,8 +787,33 @@ def ingest_welcome_to_the_jungle(
         )
         
         elapsed = time.time() - started
+        total_records = jobs_result["written"] + companies_result["written"]
+        throughput = round(total_records / elapsed, 2) if elapsed > 0 else 0
         
         logger.info("Run done | mode=%s | dt=%s | run_id=%s", mode, dt, run_id)
+        
+        # Emit structured log for monitoring (directement à la source)
+        try:
+            import json
+            from datetime import timezone
+            structured_logger = logging.getLogger("structured")
+            event = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": "ingestion_summary",
+                "task_type": "welcome_to_jungle_jobs",
+                "run_id": run_id,
+                "mode": mode,
+                "records_count": total_records,
+                "records_written": total_records,
+                "duration_sec": round(elapsed, 2),
+                "throughput": throughput,
+                "jobs_processed": jobs_result["processed"],
+                "companies_processed": companies_result["processed"],
+                "errors": jobs_result.get("errors", 0) + companies_result.get("errors", 0)
+            }
+            structured_logger.info(json.dumps(event))
+        except Exception as e:
+            logger.warning(f"Failed to emit structured log: {e}")
         
         return {
             "success": True,
@@ -800,7 +825,7 @@ def ingest_welcome_to_the_jungle(
             "companies": companies_result,
             "elapsed_s": elapsed,
             "total_processed": jobs_result["processed"] + companies_result["processed"],
-            "total_written": jobs_result["written"] + companies_result["written"]
+            "total_written": total_records
         }
     
     except Exception as e:

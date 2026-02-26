@@ -164,6 +164,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import LinearSVC
 
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
 # -----------------------------
 # CONFIG (env overridable)
 # -----------------------------

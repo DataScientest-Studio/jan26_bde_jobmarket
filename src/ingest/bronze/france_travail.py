@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Tuple, Optional, Callable
 
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
 from termcolor import colored
 
 from src.ingest.clients.france_travail_client import FranceTravailClient
@@ -14,6 +17,7 @@ from src.ingest.clients.france_travail_client import FranceTravailClient
 from src.storage.storage import get_storage_from_env, Storage
 
 logger = logging.getLogger(__name__)
+structured_logger = logging.getLogger("structured")
 
 CONTENT_RANGE_RE = re.compile(r"offres\s+(\d+)-(\d+)/(\d+)", re.IGNORECASE)
 
@@ -557,7 +561,9 @@ def ingest_france_travail_offers(
     max_windows: int = None,
     binary_split_min_seconds: int = None,
     max_rome_codes: int = None,
-    progress_callback: Optional[Callable[[int, int, str, str], None]] = None
+    progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+    logger_override: Optional[logging.Logger] = None,
+    task_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Service d'ingestion des offres d'emploi France Travail en couche bronze.
@@ -570,10 +576,14 @@ def ingest_france_travail_offers(
         binary_split_min_seconds: Taille minimale de fenêtre pour split binaire
         max_rome_codes: Limiter le nombre de codes ROME traités (0 = tous)
         progress_callback: Callback appelé avec (current, total, rome_code, rome_label) à chaque progression
+        logger_override: Logger personnalisé à utiliser (optionnel)
         
     Returns:
         Dict avec le statut de l'opération et les statistiques détaillées
     """
+    # Utiliser le logger passé ou le logger du module
+    log = logger_override if logger_override is not None else logger
+    
     try:
         # Initialize storage and client
         if storage is None:
@@ -594,21 +604,45 @@ def ingest_france_travail_offers(
         # Generate run metadata
         dt = utc_dt_str()
         run_id = utc_run_id()
+        enable_grafana = os.getenv("ENABLE_GRAFANA_LOGS", "false").lower() == "true"
+
+        def emit_structured(event_type: str, **fields: Any) -> None:
+            if not enable_grafana:
+                return
+            payload: Dict[str, Any] = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "event_type": event_type,
+                "task_type": "france_travail_offers",
+                "run_id": run_id,
+            }
+            if task_id:
+                payload["task_id"] = task_id
+            payload.update(fields)
+            if "records_count" not in payload and "records_written" in payload:
+                payload["records_count"] = payload["records_written"]
+            structured_logger.info(json.dumps(payload))
         
-        logger.info(f"Début de l'ingestion France Travail - run_id={run_id}")
+        log.info(f"Début de l'ingestion France Travail - run_id={run_id}")
         
         # Base query parameters
         base_params: Dict[str, Any] = {"sort": "1"}
         
         # Fetch ROME codes
-        logger.info("Récupération de la liste des codes ROME...")
+        log.info("Récupération de la liste des codes ROME...")
         rome_items = get_rome_metiers(client)
         
         if max_rome_codes > 0:
             rome_items = rome_items[:max_rome_codes]
-            logger.info(f"Limitation à {max_rome_codes} codes ROME")
+            log.info(f"Limitation à {max_rome_codes} codes ROME")
         
-        logger.info(f"Traitement de {len(rome_items)} codes ROME")
+        log.info(f"Traitement de {len(rome_items)} codes ROME")
+        emit_structured(
+            "ingestion_started",
+            rome_total=len(rome_items),
+            window_days=window_days,
+            max_windows=max_windows,
+            max_rome_codes=max_rome_codes,
+        )
         
         # Process each ROME code
         total_errors = 0
@@ -619,13 +653,21 @@ def ingest_france_travail_offers(
         started = time.time()
         
         for idx, rome in enumerate(rome_items, 1):
-            logger.info(f"[{idx}/{len(rome_items)}] Traitement {rome.code} - {rome.libelle}")
+            log.info(f"[{idx}/{len(rome_items)}] Traitement {rome.code} - {rome.libelle}")
             
             # Callback de progression
             if progress_callback:
                 progress_callback(idx, len(rome_items), rome.code, rome.libelle)
             
             total_global = probe_total(client, {"codeROME": rome.code, **base_params})
+            emit_structured(
+                "rome_progress",
+                rome_code=rome.code,
+                rome_label=rome.libelle,
+                rome_index=idx,
+                rome_total=len(rome_items),
+                total_global=total_global,
+            )
             print_rome_line(rome.code, total_global, rome.libelle)
             
             if total_global <= MAX_RETRIEVABLE:
@@ -679,6 +721,18 @@ def ingest_france_travail_offers(
             per_rome_stats.append(stat)
             total_calls += stat["calls"]
             total_written += stat["written"]
+
+            emit_structured(
+                "rome_completed",
+                rome_code=rome.code,
+                rome_label=rome.libelle,
+                rome_index=idx,
+                rome_total=len(rome_items),
+                total_global=total_global,
+                mode=stat.get("mode"),
+                calls=stat["calls"],
+                records_written=stat["written"],
+            )
         
         elapsed = time.time() - started
         
@@ -718,7 +772,18 @@ def ingest_france_travail_offers(
         # Write run metadata
         run_key = write_run_metadata(storage, run_id, run_payload)
         
-        logger.info(f"Ingestion terminée: {total_written} offres écrites en {elapsed:.2f}s")
+        log.info(f"Ingestion terminée: {total_written} offres écrites en {elapsed:.2f}s")
+        throughput = round(total_written / elapsed, 2) if elapsed > 0 else 0
+        emit_structured(
+            "ingestion_summary",
+            rome_processed=len(per_rome_stats),
+            records_count=total_written,
+            records_written=total_written,
+            duration_sec=round(elapsed, 2),
+            throughput=throughput,
+            calls=total_calls,
+            errors=total_errors,
+        )
         
         return {
             "success": True,
@@ -736,7 +801,9 @@ def ingest_france_travail_offers(
         }
         
     except Exception as e:
-        logger.error(f"Erreur lors de l'ingestion France Travail: {e}", exc_info=True)
+        log.error(f"Erreur lors de l'ingestion France Travail: {e}", exc_info=True)
+        if 'emit_structured' in locals():
+            emit_structured("ingestion_error", error=str(e))
         return {
             "success": False,
             "error": str(e),
@@ -760,3 +827,4 @@ def main_cli() -> None:
 
 if __name__ == "__main__":
     main_cli()
+
