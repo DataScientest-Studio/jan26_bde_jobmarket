@@ -5,6 +5,9 @@ from typing import Any, Dict, Iterable, List, Tuple
 import os
 import logging
 
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
 logger = logging.getLogger(__name__)
 
 

@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Optional
 import boto3
 import joblib
 import numpy as np
+
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
 # -----------------------------
 # CONFIG
 # -----------------------------

@@ -10,6 +10,9 @@ stored in raw format in the storage backend.
 """
 from __future__ import annotations
 
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
 import gzip
 import hashlib
 import json
@@ -36,9 +39,6 @@ from urllib3.util.retry import Retry
 from src.storage.storage import get_storage_from_env
 from src.ingest.tools.rate_limiter import RateLimiter
 import src.ingest.tools.time_helpers as time_helpers
-
-from dotenv import load_dotenv
-load_dotenv()
 
 # ----------------------------
 # Logging
