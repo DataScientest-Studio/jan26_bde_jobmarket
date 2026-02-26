@@ -3,6 +3,9 @@ JobStore module for managing job runs in the database.
 This module provides the JobStore class which allows creating, 
 updating, and querying job runs.
 
+It' usefull for long-running tasks like data ingestion or model training,
+to track their progress, status, and results.
+
 It uses psycopg for PostgreSQL interactions, 
 but degrades gracefully if psycopg is not installed.
 """
