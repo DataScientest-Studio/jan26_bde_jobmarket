@@ -15,6 +15,7 @@ from termcolor import colored
 from src.ingest.clients.france_travail_client import FranceTravailClient
 
 from src.storage.storage import get_storage_from_env, Storage
+from src.utils.log_to_db import log_to_db
 
 logger = logging.getLogger(__name__)
 structured_logger = logging.getLogger("structured")
@@ -651,6 +652,7 @@ def ingest_france_travail_offers(
         total_calls = 0
         total_written = 0
         started = time.time()
+        last_rome_time = started
         
         for idx, rome in enumerate(rome_items, 1):
             log.info(f"[{idx}/{len(rome_items)}] Traitement {rome.code} - {rome.libelle}")
@@ -669,6 +671,33 @@ def ingest_france_travail_offers(
                 total_global=total_global,
             )
             print_rome_line(rome.code, total_global, rome.libelle)
+            
+            # Log progress to database for real-time monitoring
+            current_time = time.time()
+            elapsed_so_far = current_time - started
+            rome_duration = current_time - last_rome_time
+            pct = (idx / len(rome_items)) * 100 if len(rome_items) > 0 else 0.0
+            rome_task_id_progress = f"{run_id}-rome-{idx}"
+            log_to_db(
+                endpoint='france_travail_offers',
+                level='INFO',
+                message=f"⏳ Code ROME {idx}/{len(rome_items)} ({pct:.1f}%): {rome.code} - {rome.libelle} ({total_global} offres)",
+                task_id=rome_task_id_progress,
+                duration_sec=round(rome_duration, 2),
+                records_count=total_written,
+                extra_metadata={
+                    'rome_code': rome.code,
+                    'rome_label': rome.libelle,
+                    'rome_index': idx,
+                    'rome_total': len(rome_items),
+                    'percent': round(pct, 1),
+                    'total_global': total_global,
+                    'rome_duration': round(rome_duration, 2),
+                    'elapsed_total': round(elapsed_so_far, 2),
+                    'run_id': run_id
+                }
+            )
+            last_rome_time = current_time
             
             if total_global <= MAX_RETRIEVABLE:
                 res = extract_and_store_by_range(

@@ -44,6 +44,7 @@ from urllib3.util.retry import Retry
 
 from src.storage.storage import get_storage_from_env
 from src.ingest.tools.rate_limiter import RateLimiter
+from src.utils.log_to_db import log_to_db
 
 from src.config.env import require_env, get_project_root, load_project_env
 load_project_env()  # safe à rappeler (idempotent)
@@ -475,8 +476,30 @@ def ingest_segment(
     buffer: List[Dict[str, Any]] = []
 
     start_time = time.time()
+    last_checkpoint_time = start_time
     
     logger.info(f"Start segment={segment} | urls_total={len(urls)} | skip={len(skip_urls)} | todo={len(urls_todo)} | workers={workers} | part_size={part_size} | next_part={part_no}" )
+    
+    # Unique task_id for this segment operation
+    segment_task_id = f"{run_id}-{segment}-start"
+    
+    log_to_db(
+        endpoint='welcome_to_the_jungle',
+        level='INFO',
+        message=f"📥 Début ingestion segment {segment}: {len(urls_todo)} URLs à traiter ({len(skip_urls)} déjà traitées)",
+        task_id=segment_task_id,
+        duration_sec=0,
+        records_count=len(urls_todo),
+        extra_metadata={
+            'segment': segment,
+            'urls_total': len(urls),
+            'skip': len(skip_urls),
+            'workers': workers,
+            'part_size': part_size,
+            'run_id': run_id
+        }
+    )
+
 
     def flush_buffer() -> None:
         """ Nested function to flush the current buffer of records to storage as a new part file, and update the progress meta."""
@@ -526,6 +549,22 @@ def ingest_segment(
             "written": 0,
             "updated_at": utc_now_iso(),
         })
+        segment_task_id_empty = f"{run_id}-{segment}-empty"
+        log_to_db(
+            endpoint='welcome_to_the_jungle',
+            level='INFO',
+            message=f"⏭️ Segment {segment}: aucune URL à traiter (toutes déjà importées)",
+            task_id=segment_task_id_empty,
+            duration_sec=0.0,
+            records_count=0,
+            error_count=0,
+            extra_metadata={
+                'segment': segment,
+                'reason': 'all_urls_skipped',
+                'skipped': len(skip_urls),
+                'run_id': run_id
+            }
+        )
         return {
             "segment": segment,
             "processed": 0,
@@ -612,6 +651,10 @@ def ingest_segment(
                 remaining = total_urls - processed
                 eta_seconds = remaining / rate if rate > 0 else 0.0
                 pct = (processed / total_urls) * 100 if total_urls > 0 else 0.0
+                
+                # Calculate batch duration (time since last checkpoint)
+                current_time = time.time()
+                batch_duration = current_time - last_checkpoint_time
 
                 logger.info(
                     "Progress segment=%s | done=%d/%d (%.2f%%) | ok=%d ko=%d | rate=%.2f req/s | elapsed=%s | ETA=%s",
@@ -625,6 +668,34 @@ def ingest_segment(
                     format_eta(elapsed),
                     format_eta(eta_seconds),
                 )
+                
+                # Log progress to database for real-time monitoring
+                segment_task_id_progress = f"{run_id}-{segment}-progress-{processed}"
+                log_to_db(
+                    endpoint='welcome_to_the_jungle',
+                    level='INFO',
+                    message=f"⏳ Segment {segment}: {processed}/{total_urls} ({pct:.1f}%) - {ok} OK, {ko} erreurs - {rate:.2f} req/s",
+                    task_id=segment_task_id_progress,
+                    duration_sec=round(batch_duration, 2),
+                    records_count=processed,
+                    error_count=ko,
+                    extra_metadata={
+                        'segment': segment,
+                        'processed': processed,
+                        'total': total_urls,
+                        'percent': round(pct, 1),
+                        'ok': ok,
+                        'ko': ko,
+                        'rate_req_per_sec': round(rate, 2),
+                        'eta_seconds': round(eta_seconds, 1),
+                        'batch_duration': round(batch_duration, 2),
+                        'elapsed_total': round(elapsed, 2),
+                        'run_id': run_id
+                    }
+                )
+                
+                # Update checkpoint time
+                last_checkpoint_time = current_time
 
     # Flush buffer at the end if there are any remaining records that haven't been written yet.
     flush_buffer()
@@ -633,6 +704,27 @@ def ingest_segment(
     logger.info(
         "Done segment=%s | processed=%d | written=%d | ok=%d ko=%d | total_time=%s",
         segment, processed, total_written, ok, ko, format_eta(total_elapsed)
+    )
+    
+    # Log to database
+    segment_task_id_end = f"{run_id}-{segment}-end"
+    log_to_db(
+        endpoint='welcome_to_the_jungle',
+        level='INFO',
+        message=f"✅ Segment {segment} terminé: {total_written} offres importées ({ok} OK, {ko} erreurs) - {total_elapsed:.2f}s",
+        task_id=segment_task_id_end,
+        duration_sec=round(total_elapsed, 2),
+        records_count=total_written,
+        error_count=ko,
+        extra_metadata={
+            'segment': segment,
+            'processed': processed,
+            'written': total_written,
+            'ok': ok,
+            'ko': ko,
+            'throughput': round(total_written / total_elapsed, 2) if total_elapsed > 0 else 0,
+            'run_id': run_id
+        }
     )
     
     return {
