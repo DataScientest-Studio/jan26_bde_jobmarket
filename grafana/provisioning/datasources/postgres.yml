@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: JobStore
+    type: postgres
+    uid: jobstore
+    access: proxy
+    url: postgres:5432
+    database: jobdb
+    user: jobuser
+    secureJsonData:
+      password: jobpass
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
