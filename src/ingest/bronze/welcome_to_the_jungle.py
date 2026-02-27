@@ -674,7 +674,7 @@ def ingest_segment(
                 log_to_db(
                     endpoint='welcome_to_the_jungle',
                     level='INFO',
-                    message=f"⏳ Segment {segment}: {processed}/{total_urls} ({pct:.1f}%) - {ok} OK, {ko} erreurs - {rate:.2f} req/s",
+                    message=f"⏳ Segment {segment}: {processed}/{total_urls} ({pct:.1f}%) - {ok} OK, {ko} erreurs - {rate:.2f} req/s - Écoulé: {format_eta(elapsed)} - ETA: {format_eta(eta_seconds)}",
                     task_id=segment_task_id_progress,
                     duration_sec=round(batch_duration, 2),
                     records_count=processed,
