@@ -146,8 +146,7 @@ def emit_structured_log(payload: Dict[str, Any]) -> None:
 
 """ 
 Set task status and metadata in ACTIVE_TASKS and JobStore (if enabled) 
-
-extra can include any additional info to track (e.g. current_rome, current_rome_label for offers ingestion)
+Extra can include any additional info to track (e.g. current_rome, current_rome_label for offers ingestion)
 """
 
 def set_task(
@@ -538,7 +537,14 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
             })
 
 
-def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_companies: int):
+def run_welcome_to_jungle_task(
+    task_id: str,
+    mode: str,
+    max_jobs: int,
+    max_companies: int,
+    provided_run_id: str | None,
+    resume_from_run_id: str | None,
+):
     """Wrapper for ingesting Welcome to the Jungle data with status updates"""
     import time
 
@@ -581,7 +587,9 @@ def run_welcome_to_jungle_task(task_id: str, mode: str, max_jobs: int, max_compa
             mode=mode,
             max_jobs=max_jobs,
             max_companies=max_companies,
-            progress_callback=update_progress
+            provided_run_id=provided_run_id,
+            resume_from_run_id=resume_from_run_id,
+            progress_callback=update_progress,
         )
         
         duration_sec = time.monotonic() - start_monotonic
@@ -1405,14 +1413,24 @@ async def ingest_wttj_endpoint(
     background: bool = Query(False, description="Lancer en arrière-plan"),
     mode: str = Query("new", description="Mode d'ingestion (new, resume, incremental)"),
     max_jobs: int = Query(0, description="Limiter le nombre de jobs (0 = tous)"),
-    max_companies: int = Query(0, description="Limiter le nombre de companies (0 = tous)")
+    max_companies: int = Query(0, description="Limiter le nombre de companies (0 = tous)"),
+    provided_run_id: str | None = Query(None, description="Run ID à utiliser en mode resume"),
+    resume_from_run_id: str | None = Query(None, description="Run ID source pour mode incremental"),
 ):
     """Ingestion des offres d'emploi Welcome to the Jungle en couche bronze.
 
 Collecte les URLs depuis les sitemaps et extrait les données structurées
 des pages jobs et companies pour stockage en bronze.
 """
-    logger.info(f"Requête d'ingestion WTTJ reçue (background={background}, mode={mode}, max_jobs={max_jobs}, max_companies={max_companies})")
+    logger.info(
+        "Requête d'ingestion WTTJ reçue (background=%s, mode=%s, max_jobs=%s, max_companies=%s, provided_run_id=%s, resume_from_run_id=%s)",
+        background,
+        mode,
+        max_jobs,
+        max_companies,
+        provided_run_id,
+        resume_from_run_id,
+    )
     
     if background:
         # Générer un task_id unique
@@ -1428,7 +1446,9 @@ des pages jobs et companies pour stockage en bronze.
             "params": {
                 "mode": mode,
                 "max_jobs": max_jobs,
-                "max_companies": max_companies
+                "max_companies": max_companies,
+                "provided_run_id": provided_run_id,
+                "resume_from_run_id": resume_from_run_id,
             }
         }
         if job_store.enabled:
@@ -1441,6 +1461,8 @@ des pages jobs et companies pour stockage en bronze.
                     "mode": mode,
                     "max_jobs": max_jobs,
                     "max_companies": max_companies,
+                    "provided_run_id": provided_run_id,
+                    "resume_from_run_id": resume_from_run_id,
                 },
                 message=f"Ingestion WTTJ en cours (mode: {mode}, jobs: {max_jobs or 'tous'}, companies: {max_companies or 'tous'})...",
             )
@@ -1452,7 +1474,9 @@ des pages jobs et companies pour stockage en bronze.
             task_id,
             mode,
             max_jobs,
-            max_companies
+            max_companies,
+            provided_run_id,
+            resume_from_run_id,
         )
         
         return IngestWTTJResponse(
@@ -1468,7 +1492,9 @@ des pages jobs et companies pour stockage en bronze.
                 storage=None,
                 mode=mode,
                 max_jobs=max_jobs,
-                max_companies=max_companies
+                max_companies=max_companies,
+                provided_run_id=provided_run_id,
+                resume_from_run_id=resume_from_run_id,
             )
             
             if result["success"]:
