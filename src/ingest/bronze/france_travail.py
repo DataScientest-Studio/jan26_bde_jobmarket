@@ -13,6 +13,7 @@ load_project_env()  # safe à rappeler (idempotent)
 from termcolor import colored
 
 from src.ingest.clients.france_travail_client import FranceTravailClient
+from src.ingest.tools.time_helpers import format_eta
 
 from src.storage.storage import get_storage_from_env, Storage
 from src.utils.log_to_db import log_to_db
@@ -677,11 +678,17 @@ def ingest_france_travail_offers(
             elapsed_so_far = current_time - started
             rome_duration = current_time - last_rome_time
             pct = (idx / len(rome_items)) * 100 if len(rome_items) > 0 else 0.0
+            rate = idx / elapsed_so_far if elapsed_so_far > 0 else 0.0
+            remaining = len(rome_items) - idx
+            eta_seconds = remaining / rate if rate > 0 else 0.0
             rome_task_id_progress = f"{run_id}-rome-{idx}"
             log_to_db(
                 endpoint='france_travail_offers',
                 level='INFO',
-                message=f"⏳ Code ROME {idx}/{len(rome_items)} ({pct:.1f}%): {rome.code} - {rome.libelle} ({total_global} offres)",
+                message=(
+                    f"⏳ Code ROME {idx}/{len(rome_items)} ({pct:.1f}%): {rome.code} - {rome.libelle} "
+                    f"({total_global} offres) - Écoulé: {format_eta(elapsed_so_far)} - ETA: {format_eta(eta_seconds)}"
+                ),
                 task_id=rome_task_id_progress,
                 duration_sec=round(rome_duration, 2),
                 records_count=total_written,
@@ -694,6 +701,7 @@ def ingest_france_travail_offers(
                     'total_global': total_global,
                     'rome_duration': round(rome_duration, 2),
                     'elapsed_total': round(elapsed_so_far, 2),
+                    'eta_seconds': round(eta_seconds, 1),
                     'run_id': run_id
                 }
             )
