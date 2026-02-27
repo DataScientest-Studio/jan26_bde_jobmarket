@@ -1185,7 +1185,12 @@ docker-compose up -d               # Postgres, MinIO, Grafana, API
 
 # 5. Verifier le bon lancement des services
 docker-compose ps                 
-curl http://localhost:8000/docs   # FastAPI Swagger UI
+curl http://localhost:8000/docs   # FastAPI 
+curl http://localhost:3000/ # Dashboard Grafana
+curl http://localhost:8888/ # Jupyter (token=jobmarket)
+
+
+Swagger UI
 ```
 
 ### Accès aux services
