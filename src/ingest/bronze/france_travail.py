@@ -705,6 +705,16 @@ def ingest_france_travail_offers(
                     'run_id': run_id
                 }
             )
+            log.info(
+                "Progress ROME %s/%s (%.1f%%) | code=%s | total=%s | elapsed=%s | ETA=%s",
+                idx,
+                len(rome_items),
+                pct,
+                rome.code,
+                total_global,
+                format_eta(elapsed_so_far),
+                format_eta(eta_seconds),
+            )
             last_rome_time = current_time
             
             if total_global <= MAX_RETRIEVABLE:
