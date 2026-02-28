@@ -460,7 +460,7 @@ def ingest_segment(
     total_urls = len(urls_todo)
     
     # We define a prefix for the raw data files in storage based on the date, run ID, and segment.
-    raw_prefix = f"bronze/dt={dt}/run_id={run_id}/segment={segment}_raw/"
+    raw_prefix = f"dt={dt}/run_id={run_id}/segment={segment}_raw/"
 
     # We also define a key for the progress meta file (e.g., run.json) that will contain statistics about the ingestion progress.
     meta_key = f"{raw_prefix}run.json"
@@ -623,7 +623,7 @@ def ingest_segment(
             # HTML gz (optionnel)
             if res.html and should_store_html(store_html_mode, res.ok, initial_data is not None):
                 html_key = (
-                    f"bronze/dt={dt}/run_id={run_id}/"
+                    f"dt={dt}/run_id={run_id}/"
                     f"segment={segment}_html/key={key_id}/page.html.gz"
                 )
                 try:
@@ -711,7 +711,10 @@ def ingest_segment(
     log_to_db(
         endpoint='welcome_to_the_jungle',
         level='INFO',
-        message=f"✅ Segment {segment} terminé: {total_written} offres importées ({ok} OK, {ko} erreurs) - {total_elapsed:.2f}s",
+        message=(
+            f"✅ Segment {segment} terminé: {total_written} offres importées ({ok} OK, {ko} erreurs) - "
+            f"{format_eta(total_elapsed)}"
+        ),
         task_id=segment_task_id_end,
         duration_sec=round(total_elapsed, 2),
         records_count=total_written,
@@ -798,10 +801,7 @@ def ingest_welcome_to_the_jungle(
         
         # Initialize storage if not provided
         if storage is None:
-            storage = get_storage_from_env(
-                os.getenv("WTTJ_DATA_DIR", "data/welcometothejungle"),
-                os.getenv("S3_PREFIX_WTTJ", "welcometothejungle"),
-            )
+            storage = get_storage_from_env("bronze", "welcometothejungle")
         
         logger.info("Début de l'ingestion WTTJ - run_id=%s mode=%s", run_id, mode)
         
@@ -826,8 +826,8 @@ def ingest_welcome_to_the_jungle(
         skip_companies: Set[str] = set()
         
         if mode == "resume":
-            jobs_prefix = f"bronze/dt={dt}/run_id={run_id}/segment=jobs_raw/"
-            comp_prefix = f"bronze/dt={dt}/run_id={run_id}/segment=companies_raw/"
+            jobs_prefix = f"dt={dt}/run_id={run_id}/segment=jobs_raw/"
+            comp_prefix = f"dt={dt}/run_id={run_id}/segment=companies_raw/"
             skip_jobs = load_processed_urls(storage, jobs_prefix)
             skip_companies = load_processed_urls(storage, comp_prefix)
             logger.info("Resume mode | already_done jobs=%d | companies=%d", len(skip_jobs), len(skip_companies))
@@ -839,8 +839,8 @@ def ingest_welcome_to_the_jungle(
                     "message": "Mode incremental nécessite un run_id source",
                     "error": "WTTJ_RUN_MODE=incremental requires WTTJ_RESUME_FROM_RUN_ID"
                 }
-            jobs_prefix = f"bronze/dt={dt}/run_id={resume_from_run_id}/segment=jobs_raw/"
-            comp_prefix = f"bronze/dt={dt}/run_id={resume_from_run_id}/segment=companies_raw/"
+            jobs_prefix = f"dt={dt}/run_id={resume_from_run_id}/segment=jobs_raw/"
+            comp_prefix = f"dt={dt}/run_id={resume_from_run_id}/segment=companies_raw/"
             skip_jobs = load_processed_urls(storage, jobs_prefix)
             skip_companies = load_processed_urls(storage, comp_prefix)
             logger.info(
@@ -960,12 +960,8 @@ def main_cli() -> None:
 
     session = build_session()
     
-    # Storage (local / S3) — mêmes variables que votre storage.py,
-    # mais ici on passe un root dédié WTTJ + un prefix dédié.
-    storage = get_storage_from_env(
-        os.getenv("WTTJ_DATA_DIR", "data/welcometothejungle"),
-        os.getenv("S3_PREFIX_WTTJ", "welcometothejungle"),
-    )
+    # Storage (local / S3) — structure unifiée bronze/welcometothejungle
+    storage = get_storage_from_env("bronze", "welcometothejungle")
 
     logger.info("Run start | mode=%s | dt=%s | run_id=%s", mode, dt, run_id)
 
@@ -991,8 +987,8 @@ def main_cli() -> None:
 
     # Depending on the run mode, we determine which URLs to skip based on previously processed records in storage.
     if mode == "resume":
-        jobs_prefix = f"bronze/dt={dt}/run_id={run_id}/segment=jobs_raw/"
-        comp_prefix = f"bronze/dt={dt}/run_id={run_id}/segment=companies_raw/"
+        jobs_prefix = f"dt={dt}/run_id={run_id}/segment=jobs_raw/"
+        comp_prefix = f"dt={dt}/run_id={run_id}/segment=companies_raw/"
         skip_jobs = load_processed_urls(storage, jobs_prefix)
         skip_companies = load_processed_urls(storage, comp_prefix)
         logger.info("Resume mode | already_done jobs=%d | companies=%d", len(skip_jobs), len(skip_companies))
@@ -1000,8 +996,8 @@ def main_cli() -> None:
     elif mode == "incremental":
         if not resume_from_run_id:
             raise RuntimeError("WTTJ_RUN_MODE=incremental requires WTTJ_RESUME_FROM_RUN_ID")
-        jobs_prefix = f"bronze/dt={dt}/run_id={resume_from_run_id}/segment=jobs_raw/"
-        comp_prefix = f"bronze/dt={dt}/run_id={resume_from_run_id}/segment=companies_raw/"
+        jobs_prefix = f"dt={dt}/run_id={resume_from_run_id}/segment=jobs_raw/"
+        comp_prefix = f"dt={dt}/run_id={resume_from_run_id}/segment=companies_raw/"
         skip_jobs = load_processed_urls(storage, jobs_prefix)
         skip_companies = load_processed_urls(storage, comp_prefix)
         logger.info(
