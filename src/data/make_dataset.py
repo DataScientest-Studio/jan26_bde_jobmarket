@@ -10,14 +10,14 @@ load_project_env()  # safe à rappeler (idempotent)
 
 from src.storage import get_storage_from_env
 
-OUTPUT_KEY = "gold/datasets/rome_dataset.parquet"
+OUTPUT_KEY = "datasets/rome_dataset.parquet"  # relative to gold/
 
 MIN_CLASS_COUNT = int(os.getenv("MIN_CLASS_COUNT", "50"))
 MAX_COMPETENCES = int(os.getenv("MAX_COMPETENCES", "25"))
 
 # For MVP  we take all offers on all run.
 # Otherwise use speciific dt or runid
-BRONZE_PREFIX = os.getenv("BRONZE_OFFERS_PREFIX", "bronze/offers/dt=2026-02-13")
+BRONZE_PREFIX = os.getenv("BRONZE_OFFERS_PREFIX", "offers/dt=2026-02-13")
 
 _whitespace_re = re.compile(r"\s+")
 
@@ -83,15 +83,17 @@ def write_parquet(storage, key: str, df: pd.DataFrame) -> None:
     )
 
 def main():
-    storage = get_storage_from_env(os.getenv("FT_DATA_DIR", "data/france_travail"),
-                                   os.getenv("S3_PREFIX_FT", "france_travail"))
+    # Read from bronze/france_travail
+    storage_bronze = get_storage_from_env("bronze", "france_travail")
+    # Write to gold
+    storage_gold = get_storage_from_env("gold")
 
     print(f" make_dataset — reading from prefix: {BRONZE_PREFIX}")
     rows = []
 
     total = 0
     kept = 0
-    iterable_bronze_offers= iter_bronze_offers(storage)
+    iterable_bronze_offers = iter_bronze_offers(storage_bronze)
     for rec in iterable_bronze_offers:
         total += 1
 
@@ -109,7 +111,7 @@ def main():
         kept += 1
 
         if total % 5000 == 0:
-                print(f"\r📦 Records seen: {total} | Rows kept: {kept}", end="")        
+            print(f"\r📦 Records seen: {total} | Rows kept: {kept}", end="")        
 
     # Convert to DataFrame for easier processing and filtering
     df = pd.DataFrame(rows)
@@ -130,7 +132,7 @@ def main():
     print(f"📊 Rows kept (post-filter): {len(df)}")
 
     print(f"💾 Writing dataset to: {OUTPUT_KEY}")
-    write_parquet(storage, OUTPUT_KEY, df)
+    write_parquet(storage_gold, OUTPUT_KEY, df)
 
     print("✅ make_dataset — done")
 
