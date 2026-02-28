@@ -47,6 +47,16 @@ def clean_html(text: Optional[str]) -> str:
     
     return text.strip()
 
+#def clean_html(data):
+#    if isinstance(data, str):
+#        # Remove html tag
+#        soup = BeautifulSoup(data, 'html.parser')
+#        text = soup.get_text()
+#        # Remove Html Entities
+#        return html.unescape(text).strip()
+#     return data
+
+
 
 def normalize_text(text: Optional[str]) -> str:
     """
