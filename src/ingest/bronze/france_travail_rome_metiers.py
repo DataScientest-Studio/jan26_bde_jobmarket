@@ -50,17 +50,14 @@ def ingest_rome_metiers(storage: Storage = None) -> Dict[str, Any]:
     try:
         # Initialiser le storage si non fourni
         if storage is None:
-            storage = get_storage_from_env(
-                os.getenv("FT_DATA_DIR", "data/france_travail"),
-                os.getenv("S3_PREFIX_FT", "france_travail")
-            )
+            storage = get_storage_from_env("bronze", "france_travail")
 
         # Récupérer les données
         logger.info("Début de l'ingestion des codes ROME métiers")
         codes_rome_metiers_sorted = get_rome_metiers()
         
         # Préparer les enregistrements
-        key = "bronze/rome/rome_metiers.jsonl"
+        key = "rome/rome_metiers.jsonl"
         records = [{"code": code, "libelle": libelle} for code, libelle in codes_rome_metiers_sorted]
         
         # Écrire dans le storage
