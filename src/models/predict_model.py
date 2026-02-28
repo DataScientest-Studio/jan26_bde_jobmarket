@@ -5,99 +5,71 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import boto3
 import joblib
 import numpy as np
 
 from src.config.env import require_env, get_project_root, load_project_env
 load_project_env()  # safe à rappeler (idempotent)
 
+from src.storage.storage import LocalStorage, S3Storage, get_storage_from_env
+
 # -----------------------------
 # CONFIG
 # -----------------------------
 MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
+MODEL_PATH_PREFIX = os.getenv("MODEL_PATH_PREFIX", "models")  # Can be "models" or "gold/models"
 TOP_K = int(os.getenv("TOP_K", "5"))
 
+# Build unified storage backends  
+# For models/: use gold layer storage (models are in gold/models/...)
+# For rome/: use FT bronze layer storage
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower().strip()
-FT_DATA_DIR = Path(os.getenv("FT_DATA_DIR", "data/france_travail"))
 
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
-S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
-S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
-S3_BUCKET = os.getenv("S3_BUCKET")
-S3_PREFIX = (os.getenv("S3_PREFIX_FT", "") or "").strip("/")
-S3_REGION = os.getenv("S3_REGION", "us-east-1")
-
-# -----------------------------
-# Helpers: S3
-# -----------------------------
-def _require_s3_env():
-    if not S3_BUCKET:
-        raise RuntimeError("S3_BUCKET is required when STORAGE_BACKEND=s3")
-
-
-def _s3_client():
-    return boto3.client(
-        "s3",
-        endpoint_url=S3_ENDPOINT_URL,
-        aws_access_key_id=S3_ACCESS_KEY,
-        aws_secret_access_key=S3_SECRET_KEY,
-        region_name=S3_REGION,
-    )
-
-
-def _s3_full_key(key: str) -> str:
-    normalized = key.lstrip("/").replace("\\", "/")
-    return f"{S3_PREFIX}/{normalized}" if S3_PREFIX else normalized
-
-
-
-def read_json(key: str) -> Dict[str, Any]:
-    return json.loads(read_bytes(key).decode("utf-8"))
-
-def load_joblib(key: str) -> Any:
-    data = read_bytes(key)
-    return joblib.load(io.BytesIO(data))
-
+# Get storage for gold layer where models are stored
+storage_gold = get_storage_from_env("gold")  # gold/models/...
+storage_ft = get_storage_from_env("bronze", "france_travail")  # bronze/france_travail/...
 
 # -----------------------------
 # Get ROME model
 # -----------------------------
-def read_bytes(key: str) -> bytes:
-    if STORAGE_BACKEND == "local":
-        path = FT_DATA_DIR / Path(key)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-        return path.read_bytes()
 
-    if STORAGE_BACKEND == "s3":
-        _require_s3_env()
-        client = _s3_client()
-        obj = client.get_object(Bucket=S3_BUCKET, Key=_s3_full_key(key))
-        return obj["Body"].read()
-
-    raise RuntimeError(f"Unsupported STORAGE_BACKEND={STORAGE_BACKEND}")
-
+def load_joblib(key: str) -> Any:
+    """Load joblib object from gold storage (models layer)"""
+    data = storage_gold.read_bytes(key)
+    return joblib.load(io.BytesIO(data))
 
 def read_jsonl(key: str) -> List[Dict[str, Any]]:
-    """ Read JSONL file and return list of dicts """
-    results = []
-    data = read_bytes(key).decode("utf-8")
-    for line in data.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        results.append(json.loads(line))
-    return results
+    """Read JSONL file and return list of dicts from FT storage"""
+    return list(storage_ft.read_jsonl(key))
 
-def get_rome_model() -> str:
-    rome_model = read_jsonl(f"bronze/rome/rome_metiers.jsonl")
-    rome_index = {row["code"]: row["libelle"] for row in rome_model}
-    return rome_index
+def get_rome_model() -> Dict[str, str]:
+    """
+    Load ROME codes from storage_ft (bronze/france_travail layer).
+    Relative key: "rome/rome_metiers.jsonl"
+    """
+    try:
+        rome_rows = list(storage_ft.read_jsonl("rome/rome_metiers.jsonl"))
+        rome_index = {row["code"]: row["libelle"] for row in rome_rows}
+        return rome_index
+    except Exception as exc:
+        raise exc
+
+
+def safe_get_rome_model() -> Dict[str, str]:
+    try:
+        rome_index = get_rome_model()
+        print(f"[OK] Loaded ROME model: {len(rome_index)} entries")
+        return rome_index
+    except Exception as exc:
+        print(
+            "[WARN] ROME model unavailable at startup; continuing with empty index. "
+            f"Reason: {exc}"
+        )
+        return {}
+
 
 global rome_model
-rome_model = get_rome_model()
-print(f"✅ Loaded ROME model: {len(rome_model)} entries")
+rome_model = safe_get_rome_model()
 
 
 
@@ -154,17 +126,35 @@ def build_text_payload(
 # Load latest model artifacts
 # -----------------------------
 def get_latest_version() -> str:
-    latest = read_json(f"models/{MODEL_NAME}/LATEST.json")
-    return latest["latest"]
+    """Get latest model version from LATEST.json in gold/models/"""
+    key = f"models/{MODEL_NAME}/LATEST.json"
+    try:
+        data = storage_gold.read_bytes(key)
+        latest = json.loads(data.decode("utf-8"))
+        return latest["latest"]
+    except Exception as exc:
+        raise FileNotFoundError(f"LATEST.json not found at gold/{key}") from exc
 
 
 def load_artifacts() -> Dict[str, Any]:
+    """Load model artifacts (vectorizer, model, label_encoder) from gold/models/"""
     version = get_latest_version()
     base = f"models/{MODEL_NAME}/versions/{version}"
-    vectorizer = load_joblib(f"{base}/vectorizer.joblib")
-    model = load_joblib(f"{base}/model.joblib")
-    label_encoder = load_joblib(f"{base}/label_encoder.joblib")
-    return {"version": version, "base": base, "vectorizer": vectorizer, "model": model, "label_encoder": label_encoder}
+    
+    try:
+        vectorizer = load_joblib(f"{base}/vectorizer.joblib")
+        model = load_joblib(f"{base}/model.joblib")
+        label_encoder = load_joblib(f"{base}/label_encoder.joblib")
+        
+        return {
+            "version": version,
+            "base": base,
+            "vectorizer": vectorizer,
+            "model": model,
+            "label_encoder": label_encoder,
+        }
+    except Exception as exc:
+        raise FileNotFoundError(f"Could not load model artifacts from gold/{base}") from exc
 
 
 # -----------------------------
