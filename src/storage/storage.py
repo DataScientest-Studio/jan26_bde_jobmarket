@@ -29,6 +29,13 @@ class StorageError(RuntimeError):
 
 
 class Storage(ABC):
+    @abstractmethod
+    def list_prefixes(self, prefix: str) -> Iterable[str]:
+        """
+        List immediate sub-prefixes (folders) under a given prefix.
+        Example: prefix="dt=2026-02-28/" returns ["runid=.../"]
+        """
+        raise NotImplementedError
     """
     Storage interface used by ingestion code.
 
@@ -154,6 +161,22 @@ class LocalStorage(Storage):
     def __init__(self, root: Path, prefix: Optional[str] = None) -> None:
         self.root = root
         self.prefix = (prefix).strip("/") if prefix else None
+
+    def list_prefixes(self, prefix: str) -> Iterable[str]:
+        """
+        List immediate subfolders under a given prefix for local filesystem.
+        """
+        normalized = prefix.lstrip("/").replace("\\", "/")
+        base = (self.root / Path(normalized))
+        if not base.exists():
+            return []
+        subfolders = set()
+        for p in base.iterdir():
+            if p.is_dir():
+                rel = p.relative_to(self.root).as_posix()
+                # Only return the immediate subfolder name (with trailing slash)
+                subfolders.add(rel[len(normalized):].strip("/") + "/")
+        return list(subfolders)
 
     def _resolve(self, key: str) -> Path:
         """
@@ -316,6 +339,25 @@ class S3Storage(Storage):
             region_name=region or os.getenv("S3_REGION", "us-east-1"),
             config=config,
         )
+
+    def list_prefixes(self, prefix: str) -> Iterable[str]:
+        """
+        Efficiently list immediate sub-prefixes (folders) under a given prefix using S3 delimiter.
+        """
+        normalized = prefix.lstrip("/").replace("\\", "/")
+        full_prefix = self._full_key(normalized)
+        paginator = self.client.get_paginator("list_objects_v2")
+        prefixes = set()
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=full_prefix, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                logical = cp["Prefix"]
+                # remove prefix root (S3_PREFIX) to return logical key
+                if self.prefix:
+                    logical = logical[len(self.prefix) + 1 :]
+                if logical.startswith(prefix):
+                    logical = logical[len(prefix):]
+                prefixes.add(logical)
+        return list(prefixes)
 
     def _full_key(self, key: str) -> str:
         """
@@ -481,30 +523,60 @@ class S3Storage(Storage):
         return count
 
 
-def get_storage_from_env(local_root, s3_prefix) -> Storage:
+def get_storage_from_env(layer: str, source: str | None = None) -> Storage:
     """
     Factory that selects the storage backend based on environment variables.
-
+    
+    Builds local/S3 paths following a unified layer/source directory structure:
+    - Local filesystem: data/{layer}/{source}/
+    - S3/MinIO: {layer}/{source}/
+    
+    This enables a consistent, layer-first organization:
+        bronze/france_travail/   → Raw FT offers
+        bronze/welcometothejungle/  → Raw WTTJ offers
+        silver/merged/           → Merged FT + WTTJ dataset
+        gold/datasets/           → Final business-ready datasets
+    
+    Args:
+        layer: Storage layer ("bronze", "silver", "gold")
+        source: Optional data source identifier ("france_travail", "welcometothejungle", 
+                "merged", "datasets", etc.). If None, only layer is used.
+    
+    Returns:
+        Storage: Configured LocalStorage or S3Storage backend
+        
+    Examples:
+        get_storage_from_env("bronze", "france_travail")
+        → local: data/bronze/france_travail/
+        → s3:    bronze/france_travail/
+        
+        get_storage_from_env("silver", "merged")
+        → local: data/silver/merged/
+        → s3:    silver/merged/
+        
+        get_storage_from_env("gold", "datasets")
+        → local: data/gold/datasets/
+        → s3:    gold/datasets/
+    
     Env variables:
-    - STORAGE_BACKEND=local|s3
-      - local: uses FT_DATA_DIR as root folder
-      - s3:    uses MinIO/S3 settings
-
-    Local:
-    - FT_DATA_DIR=data/france_travail
-
-    S3/MinIO:
-    - S3_ENDPOINT_URL=http://localhost:9000
-    - S3_ACCESS_KEY=...
-    - S3_SECRET_KEY=...
-    - S3_BUCKET=jobmarket
-    - S3_PREFIX=france_travail (optional)
-    - S3_REGION=us-east-1
+    - STORAGE_BACKEND=local|s3 (default: local)
+    - S3_ENDPOINT_URL (required if backend=s3)
+    - S3_ACCESS_KEY (required if backend=s3)
+    - S3_SECRET_KEY (required if backend=s3)
+    - S3_BUCKET (required if backend=s3, default: jobmarket)
+    - S3_REGION (optional, default: us-east-1)
     """
     backend = os.getenv("STORAGE_BACKEND", "local").lower().strip()
+    
+    # Build path components
+    if source:
+        local_path = Path("data") / layer / source
+        s3_prefix = f"{layer}/{source}"
+    else:
+        local_path = Path("data") / layer
+        s3_prefix = layer
 
     if backend == "s3":
         return S3Storage(prefix=s3_prefix)
 
-    root = Path(local_root)
-    return LocalStorage(root)
+    return LocalStorage(local_path)
