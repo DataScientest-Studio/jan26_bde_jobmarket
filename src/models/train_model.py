@@ -151,7 +151,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Tuple, Any
-import boto3
 
 # joblib is used to save and load trained ML artifacts (model, vectorizer, label encoder)
 # efficiently, especially for large scikit-learn objects
@@ -167,14 +166,17 @@ from sklearn.svm import LinearSVC
 from src.config.env import require_env, get_project_root, load_project_env
 load_project_env()  # safe à rappeler (idempotent)
 
+from src.storage.storage import LocalStorage, S3Storage, get_storage_from_env
+
 # -----------------------------
 # CONFIG (env overridable)
 # -----------------------------
-DATASET_KEY = os.getenv("DATASET_KEY", "jobmarket/gold/datasets/rome_dataset.parquet")
+DATASET_KEY = os.getenv("DATASET_KEY", "datasets/rome_dataset.parquet")
 
 MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
+MODEL_PATH_PREFIX = os.getenv("MODEL_PATH_PREFIX", "models")  # Relative path within gold layer
 MODEL_VERSION = os.getenv("MODEL_VERSION", "v1")
-MODEL_BASE_KEY = f"models/{MODEL_NAME}/versions/{MODEL_VERSION}"
+MODEL_BASE_KEY = f"{MODEL_PATH_PREFIX}/{MODEL_NAME}/versions/{MODEL_VERSION}"
 
 # Split ratios
 TEST_SIZE = float(os.getenv("TEST_SIZE", "0.10"))
@@ -192,104 +194,36 @@ TFIDF_MAX_FEATURES = os.getenv("TFIDF_MAX_FEATURES")  # None or int
 # LinearSVC params
 SVC_C = float(os.getenv("SVC_C", "1.0"))
 
-# I/O backend (same logic as your storage.py)
-STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower().strip()
-FT_DATA_DIR = Path(os.getenv("FT_DATA_DIR", "data/france_travail"))
+# Storage backends
+storage_gold = get_storage_from_env("gold")  # For datasets and models
 
-# S3 / MinIO env
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
-S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
-S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
-S3_BUCKET = os.getenv("S3_BUCKET")
-S3_PREFIX = (os.getenv("S3_PREFIX_FT", "") or "").strip("/")
-S3_REGION = os.getenv("S3_REGION", "us-east-1")
+# Helpers: Storage Read/Write
+# =============================
 
-
-# -----------------------------
-# Helpers: S3
-# -----------------------------
-def _s3_client():
-    return boto3.client(
-        "s3",
-        endpoint_url=S3_ENDPOINT_URL,
-        aws_access_key_id=S3_ACCESS_KEY,
-        aws_secret_access_key=S3_SECRET_KEY,
-        region_name=S3_REGION,
-    )
-
-def _s3_full_key(key: str) -> str:
-    normalized = key.lstrip("/").replace("\\", "/")
-    if S3_PREFIX:
-        return f"{S3_PREFIX}/{normalized}"
-    return normalized
-
-def _require_s3_env():
-    if not S3_BUCKET:
-        raise RuntimeError("S3_BUCKET is required when STORAGE_BACKEND=s3")
-
-
-# -----------------------------
-# Read dataset (local or S3)
-# -----------------------------
 def read_parquet(key: str) -> pd.DataFrame:
-    if STORAGE_BACKEND == "local":
-        path = FT_DATA_DIR / Path(key)
-        if not path.exists():
-            raise FileNotFoundError(f"Dataset not found: {path}")
-        return pd.read_parquet(path)
+    """Read parquet from gold storage"""
+    return storage_gold.read_parquet(key)
 
-    if STORAGE_BACKEND == "s3":
-        _require_s3_env()
-        client = _s3_client()
-        full_key = _s3_full_key(key)
-        obj = client.get_object(Bucket=S3_BUCKET, Key=full_key)
-        data = obj["Body"].read()
-        buf = io.BytesIO(data)
-        return pd.read_parquet(buf)
-
-    raise RuntimeError(f"Unsupported STORAGE_BACKEND={STORAGE_BACKEND}")
-
-
-# -----------------------------
-# Write artifacts (local or S3)
-# -----------------------------
-def write_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
-    if STORAGE_BACKEND == "local":
-        out_path = FT_DATA_DIR / Path(key)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(data)
-        return
-
-    if STORAGE_BACKEND == "s3":
-        _require_s3_env()
-        client = _s3_client()
-        full_key = _s3_full_key(key)
-        client.put_object(
-            Bucket=S3_BUCKET,
-            Key=full_key,
-            Body=data,
-            ContentType=content_type,
-        )
-        return
-
-    raise RuntimeError(f"Unsupported STORAGE_BACKEND={STORAGE_BACKEND}")
-
+def read_json(key: str) -> Dict[str, Any]:
+    """Read JSON from gold storage (for models)"""
+    return json.loads(storage_gold.read_bytes(key).decode("utf-8"))
 
 def write_json(key: str, payload: Dict[str, Any]) -> None:
+    """Write JSON to gold storage (for models)"""
     data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-    write_bytes(key, data, content_type="application/json; charset=utf-8")
-
+    storage_gold.write_bytes(key, data, content_type="application/json; charset=utf-8")
 
 def write_joblib(key: str, obj: Any) -> None:
+    """Write joblib to gold storage (for models)"""
     buf = io.BytesIO()
     joblib.dump(obj, buf)
     buf.seek(0)
-    write_bytes(key, buf.getvalue(), content_type="application/octet-stream")
+    storage_gold.write_bytes(key, buf.getvalue(), content_type="application/octet-stream")
 
+def write_parquet(storage, key: str, df) -> None:
+    """Write parquet to specified storage"""
+    storage.write_parquet(key, df)
 
-# -----------------------------
-# Metrics: top-k accuracy for LinearSVC
-# -----------------------------
 def top_k_accuracy_from_scores(scores: np.ndarray, y_true: np.ndarray, k: int) -> float:
     """
     scores: shape (n_samples, n_classes)
@@ -307,7 +241,7 @@ def top_k_accuracy_from_scores(scores: np.ndarray, y_true: np.ndarray, k: int) -
 # -----------------------------
 def main():
     run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    print(f" train.py — start (backend={STORAGE_BACKEND})")
+    print(f" train.py — start (backend={os.getenv('STORAGE_BACKEND', 'local')})")
     print(f"📥 Reading dataset: {DATASET_KEY}")
 
     df = read_parquet(DATASET_KEY)
@@ -429,7 +363,7 @@ def main():
 
     train_meta = {
         "run_ts_utc": run_ts,
-        "backend": STORAGE_BACKEND,
+        "backend": os.getenv('STORAGE_BACKEND', 'local'),
         "rows": int(len(df)),
         "classes": int(n_classes),
     }
@@ -440,7 +374,7 @@ def main():
 
     # Optional: also write a "latest" pointer (simple file) – works for local & S3
     # This avoids symlinks (Windows/S3).
-    write_json(f"models/{MODEL_NAME}/LATEST.json", {"latest": MODEL_VERSION, "updated_utc": run_ts})
+    write_json(f"{MODEL_PATH_PREFIX}/{MODEL_NAME}/LATEST.json", {"latest": MODEL_VERSION, "updated_utc": run_ts})
 
     print("✅ train.py — done")
 
