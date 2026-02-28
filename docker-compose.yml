@@ -27,7 +27,7 @@ services:
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
     command: server /data --console-address ":9001"
     volumes:
-      - ./minio-data:/data
+      - ./data:/data
 
   minio-init:
     image: minio/mc:latest
