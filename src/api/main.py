@@ -7,23 +7,9 @@ and ingestion, and integrates with the JobStore for tracking long-running tasks.
 It also uses log_to_db utility to log ingestion events directly to PostgreSQL,
 with graceful degradation if psycopg is not installed.
 """
-
 import os
-import logging
-from logging.handlers import RotatingFileHandler
-import json
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
-
-from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
-from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
-from src.ingest.bronze.france_travail import ingest_france_travail_offers
-from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
-from src.data.make_merge_dataset_ft_wttj_with_rome import merge_ft_wttj_datasets
-from src.observability.job_store import JobStore
-from src.utils.log_to_db import log_to_db
+from src.config.env import require_env, get_project_root, load_project_env
+load_project_env()  # safe à rappeler (idempotent)
 
 ENABLE_GRAFANA_LOGS = os.getenv("ENABLE_GRAFANA_LOGS", "false").lower() == "true"
 JOBSTORE_DSN = os.getenv("JOBSTORE_DSN")
@@ -33,22 +19,104 @@ STATUS_RUNNING = "RUNNING"
 STATUS_SUCCESS = "SUCCESS"
 STATUS_FAILED = "FAILED"
 
-# Import APIs' models
+MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
+TOP_K = int(os.getenv("TOP_K", "5"))
+
+import uuid
+import pandas as pd
+import logging
+import json
+from typing import Dict, Any, Optional, List
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from pydantic import BaseModel
+from pathlib import Path
+from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
+
+# Imports applicatifs
+from src.ingest.silver.welcome_to_jungle import normalize_wttj_jobs
+from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
+from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
+from src.ingest.bronze.france_travail import ingest_france_travail_offers
+from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
+from src.data.make_merge_dataset_ft_wttj_with_rome import merge_ft_wttj_datasets
+from src.observability.job_store import JobStore
+from src.utils.log_to_db import log_to_db
+from src.ingest.tools.time_helpers import format_eta
+
 from src.api.models import (
     PredictRequest,
     PredictResponse,
     IngestResponse,
     IngestOffersResponse,
     IngestWTTJResponse,
-    MergeDatasetResponse
+    MergeDatasetResponse,
+    NormalizeWTTJResponse,
+    JSONOnlyFilter
 )
 
-# Filter ot keep only JSON messages in structured logs (for Grafana)
-class JSONOnlyFilter(logging.Filter):
-    """Filtre qui ne laisse passer que les messages JSON"""
-    def filter(self, record):
-        # Ne garder que les messages qui ressemblent à du JSON
-        return record.getMessage().strip().startswith('{')
+# Global cache (loaded once at startup)
+ARTIFACTS: Dict[str, Any] = {}
+rome_model = None
+
+# Tracking tasks in progress 
+ACTIVE_TASKS: Dict[str, Dict[str, Any]] = {}
+
+app = FastAPI(
+    title="ROME Classifier & Data Ingestion API",
+    version="1.0.0",
+    description="""
+API microservice pour la classification automatique des offres d'emploi selon le référentiel ROME 
+et l'ingestion des données de référence depuis France Travail.
+
+## Fonctionnalités
+
+- **Prédiction ROME** : Classifie une offre d'emploi et retourne les codes ROME correspondants
+- **Ingestion des codes ROME** : Importe la nomenclature complète des métiers ROME
+- **Ingestion des offres d'emploi** : Importe les offres d'emploi depuis France Travail
+- **Monitoring** : Status et health checks de l'API
+
+## Utilisation
+
+Consultez les endpoints ci-dessous pour tester l'API directement depuis cette interface.
+    """,
+    contact={
+        "name": "Job Market API Support"
+    }
+)
+
+def normalize_wttj_jobs_task(dt: str, output_format: str = "parquet"):
+    result = normalize_wttj_jobs(dt, output_format)
+    return NormalizeWTTJResponse(
+        job_id=result.job_id,
+        status=result.status,
+        dt=result.dt,
+        format=result.format,
+        files=result.files,
+        errors=result.errors
+    )
+
+@app.post(
+    "/data/normalize-wttj-jobs",
+    response_model=NormalizeWTTJResponse,
+    tags=["Data Processing"],
+    summary="Normalise les jobs WTTJ bronze en silver avec code ROME",
+    description="Lit tous les jobs_raw du bronze pour un dt donné, prédit le code ROME, écrit le résultat dans la couche silver en gardant l’arborescence, format choisi."
+)
+async def normalize_wttj_jobs_endpoint(
+    background_tasks: BackgroundTasks,
+    dt: Optional[str] = Query(None, description="Date time d'extraction dans la couche bronze au format YYYY-MM-DD (ex: 2026-02-28). Si non fourni ou 'latest', prend le dernier dt disponible dans le storage."),
+    output_format: str = Query(default="parquet", description="Format de sortie: parquet (par défaut), jsonl, ou csv"),
+    background: bool = Query(default=True, description="Exécuter la tâche en arrière-plan")
+):
+    if background:
+        job_id = f"wttj-normalize-{dt}-{uuid.uuid4().hex[:8]}"
+        def task():
+            normalize_wttj_jobs_task(dt, output_format)
+        background_tasks.add_task(task)
+        return NormalizeWTTJResponse(job_id=job_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0)
+    else:
+        return normalize_wttj_jobs_task(dt, output_format)
 
 # Configure logging with rotation and optional Grafana support
 def setup_logging():
@@ -178,40 +246,6 @@ def set_task(
             result=result,
         )
 
-MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
-TOP_K = int(os.getenv("TOP_K", "5"))
-
-app = FastAPI(
-    title="ROME Classifier & Data Ingestion API",
-    version="1.0.0",
-    description="""
-API microservice pour la classification automatique des offres d'emploi selon le référentiel ROME 
-et l'ingestion des données de référence depuis France Travail.
-
-## Fonctionnalités
-
-- **Prédiction ROME** : Classifie une offre d'emploi et retourne les codes ROME correspondants
-- **Ingestion des codes ROME** : Importe la nomenclature complète des métiers ROME
-- **Ingestion des offres d'emploi** : Importe les offres d'emploi depuis France Travail
-- **Monitoring** : Status et health checks de l'API
-
-## Utilisation
-
-Consultez les endpoints ci-dessous pour tester l'API directement depuis cette interface.
-    """,
-    contact={
-        "name": "Job Market API Support"
-    }
-)
-
-# Global cache (loaded once at startup)
-ARTIFACTS: Dict[str, Any] = {}
-rome_model = None
-
-# Tracking tasks in progress 
-ACTIVE_TASKS: Dict[str, Dict[str, Any]] = {}
-
-
 @app.on_event("startup")
 def _startup_load_model():
     """
@@ -241,8 +275,12 @@ def _startup_load_model():
                 logger.warning("Marquage des jobs stale: %s", stale_count)
                     
     except Exception as e:
-        logger.error(f"❌ Erreur lors du chargement du modèle: {e}", exc_info=True)
-        raise
+        ARTIFACTS = {}
+        rome_model = {}
+        logger.warning(
+            "⚠️ Modèle indisponible au démarrage (API continue sans crash): %s",
+            e,
+        )
 
 
 # =====================================
@@ -448,7 +486,10 @@ def run_france_travail_offers_task(task_id: str, window_days: int, max_windows: 
             log_to_db(
                 'france_travail_offers',
                 'INFO',
-                f"✅ {result.get('written')} offres importées ({result.get('rome_processed')} codes ROME, {result.get('calls')} appels, {result.get('errors')} erreurs) - {duration_sec:.2f}s",
+                (
+                    f"✅ {result.get('written')} offres importées ({result.get('rome_processed')} codes ROME, "
+                    f"{result.get('calls')} appels, {result.get('errors')} erreurs) - {format_eta(duration_sec)}"
+                ),
                 task_id=task_id,
                 duration_sec=round(duration_sec, 2),
                 records_count=result.get('written', 0),
@@ -625,7 +666,10 @@ def run_welcome_to_jungle_task(
             log_to_db(
                 'welcome_to_the_jungle',
                 'INFO',
-                f"✅ {result.get('total_written')} offres importées ({result.get('total_processed')} URLs, {errors_count} erreurs) - {duration_sec:.2f}s",
+                (
+                    f"✅ {result.get('total_written')} offres importées ({result.get('total_processed')} URLs, "
+                    f"{errors_count} erreurs) - {format_eta(duration_sec)}"
+                ),
                 task_id=task_id,
                 duration_sec=round(duration_sec, 2),
                 records_count=result.get('total_written', 0),
@@ -945,6 +989,15 @@ def predict(req: PredictRequest):
 ```
 """
     logger.info(f"Requête de prédiction - Intitulé: {req.intitule[:50] if req.intitule else 'N/A'}")
+
+    if not ARTIFACTS:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Model artifacts are not loaded yet. "
+                "Run training or upload model artifacts, then restart API."
+            ),
+        )
     
     text = build_text_payload(
         intitule=req.intitule,
