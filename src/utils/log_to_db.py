@@ -74,20 +74,21 @@ def log_to_db(
         duration_sec: Durée de l'opération en secondes (optionnel)
         records_count: Nombre d'enregistrements traités (optionnel)
         error_count: Nombre d'erreurs rencontrées (optionnel)
-        **extra_metadata: Métadonnées additionnelles stockées en JSONB
+        **extra_metadata: Métadonnées additionnelles stockées en JSONB (ex: ETA, source, file, etc)
     
     Returns:
         True si le log a été enregistré avec succès, False sinon
     
     Example:
         >>> log_to_db(
-        ...     'rome_metiers',
+        ...     'normalize_wttj_jobs',
         ...     'INFO',
-        ...     '[rome-metiers-20260226] ✅ 1584 codes importés',
-        ...     task_id='rome-metiers-20260226',
-        ...     duration_sec=0.54,
-        ...     records_count=1584,
-        ...     source='minio'
+        ...     'Processing part-000800.jsonl | 800/10000 records processed so far | ETA: 00:12:34',
+        ...     task_id='wttj-normalize-20260228-xxxx',
+        ...     records_count=800,
+        ...     ETA='00:12:34',
+        ...     file='part-000800.jsonl',
+        ...     status='RUNNING'
         ... )
         True
     """
