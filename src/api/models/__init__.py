@@ -4,9 +4,13 @@ Modèles de données pour l'API.
 Ce package contient tous les modèles Pydantic utilisés pour les requêtes
 et réponses des différents endpoints de l'API.
 """
+
+
 from .predict import PredictRequest, PredictResponse
 from .ingest import IngestResponse, IngestOffersResponse, IngestWTTJResponse
 from .data import MergeDatasetResponse
+from .normalize import NormalizeWTTJResponse
+from .logging import JSONOnlyFilter
 
 __all__ = [
     # Predict models
@@ -20,4 +24,6 @@ __all__ = [
     
     # Data processing models
     'MergeDatasetResponse',
+    'NormalizeWTTJResponse',
+    'JSONOnlyFilter',
 ]
