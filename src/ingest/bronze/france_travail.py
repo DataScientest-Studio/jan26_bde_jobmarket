@@ -1,28 +1,47 @@
+""" 
+==============
+BRONZE Layer
+==============
+ Ingest script for France Travail (FT) job offers ingestion via API.
+
+This script performs the following steps:
+
+1. Get the list of ROME codes (job categories) from the France Travail API.
+2. For each ROME code, query the total number of job offers available.
+3. If the total is below a defined threshold (FT_MAX_RETRIEVABLE), retrieve all offers in a single pass.
+4. If the total exceeds the threshold, split the retrieval into time windows (e.g., 7-day windows) to ensure we stay within API limits.
+5. Store the retrieved offers in the bronze layer storage, partitioned by date and ROME code for efficient querying in later stages.
+"""
+
 import os
-import re
 import time
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Tuple, Optional, Callable
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Callable
 
-from src.config.env import require_env, get_project_root, load_project_env
+# ----------------------------
+# Load environment variables
+# ----------------------------
+from src.config.env import load_project_env
 load_project_env()  # safe à rappeler (idempotent)
 
+# ----------------------------
+# Import project-specific modules
+# ----------------------------
 from src.ingest.clients.france_travail_client import FranceTravailClient
-from src.ingest.tools.france_travail_common import get_rome_metiers, parse_total_from_content_range, print_rome_line, probe_total, extract_and_store_by_range, extract_and_store_by_windows, write_run_metadata
-from src.ingest.tools.time_helpers import format_eta
-from src.utils.utc import utc_dt_str, utc_run_id, to_iso_z
+from src.ingest.tools.france_travail_common import get_rome_metiers, print_rome_line, probe_total, extract_and_store_by_range, extract_and_store_by_windows, write_run_metadata
 
+from src.utils.time_helpers import utc_dt_str, utc_run_id, format_eta
 from src.storage.storage import get_storage_from_env, Storage
 from src.utils.log_to_db import log_to_db
 
+# Logger setup
 logger = logging.getLogger(__name__)
 structured_logger = logging.getLogger("structured")
 
 FT_MAX_RETRIEVABLE = int(os.getenv("FT_MAX_RETRIEVABLE", "3150"))
 
-from src.ingest.data_models.bronze_datamodel_class import RomeItem, Window, WindowStat
 
 def ingest_france_travail_offers(
     storage: Storage = None,

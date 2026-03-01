@@ -42,7 +42,7 @@ from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
 from src.data.make_merge_dataset_ft_wttj_with_rome import merge_ft_wttj_datasets
 from src.observability.job_store import JobStore
 from src.utils.log_to_db import log_to_db
-from src.ingest.tools.time_helpers import format_eta
+from src.utils.time_helpers import format_eta
 
 from src.api.models import (
     PredictRequest,

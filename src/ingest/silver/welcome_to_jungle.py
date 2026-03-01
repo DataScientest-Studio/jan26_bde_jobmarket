@@ -22,7 +22,6 @@ import time
 import pandas as pd
 import json
 from typing import List
-import src.ingest.tools.time_helpers as time_helpers
 
 from src.utils.wttj_utils import get_field_or_default, find_field_in_json, _fix_double_encoded_dict, get_json_field_from_record
 from src.utils.text_processing import clean_html
@@ -35,7 +34,7 @@ load_project_env()  # safe à rappeler (idempotent)
 from src.storage.storage import get_storage_from_env
 from src.utils.log_to_db import log_to_db
 
-import src.ingest.tools.time_helpers as time_helpers
+import src.utils.time_helpers as time_helpers
 from src.ingest.data_models.welcome_to_the_jungle_class import WTTJ
 
 # Pour forcer l’affichage en console pour tous les loggers,
