@@ -152,6 +152,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                         sectors=get_field_or_default(record, 'sectors', []),
                         profession=profession
                         )
+                    # vars: convertit les champs de la class python en dict, prêt pour DataFrame ou JSON
                     row = vars(wttj)
                     row["rome_code"] = rome_code
                     row["rome_label"] = rome_label
