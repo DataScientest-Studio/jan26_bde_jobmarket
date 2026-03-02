@@ -7,14 +7,19 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import hashlib
 import json
-import src.ingest.tools.rate_limiter as RateLimiter
 from io import BytesIO
 from tqdm import tqdm  
 from typing import Any, Dict, List, Optional, Set, Tuple, Iterable, Callable
 import re
 import time
+from dataclasses import asdict
+
 from src.utils.time_helpers import utc_now_iso, format_eta
 from src.utils.log_to_db import log_to_db
+import src.ingest.tools.rate_limiter as RateLimiter
+
+# Data models
+from src.ingest.data_models.bronze_datamodel_class import wtt_bronze_datamodels
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger("wttj.ingest.bronze")
@@ -337,6 +342,8 @@ def ingest_segment(
     session: requests.Session,
     limiter: RateLimiter,
     store_html_mode: str,
+    workers: int = 10,
+    part_size: int = 500,
     skip_urls: Optional[Set[str]] = None,
     progress_callback: Optional[Callable[[str, int, int, int, int], None]] = None,
 ) -> Dict[str, Any]:
@@ -354,6 +361,8 @@ def ingest_segment(
     - session: The HTTP session to use for fetching pages
     - limiter: The rate limiter instance to control request rates
     - store_html_mode: Configuration for when to store HTML content ("never", "always", "on_error")
+    - workers: Number of concurrent worker threads (default: 10)
+    - part_size: Number of records to write per JSONL chunk file (default: 500)
     - skip_urls: An optional set of URLs to skip (e.g., already processed in a previous run)
 
     Returns:
@@ -361,8 +370,6 @@ def ingest_segment(
     """
 
     # We use a thread pool to fetch pages concurrently while respecting the rate limiter.
-    workers = int(os.getenv("WTTJ_WORKERS", "10"))
-    part_size = int(os.getenv("WTTJ_PART_SIZE", "500"))
 
     # We determine the list of URLs to process by excluding any URLs in the skip_urls set.
     skip_urls = skip_urls or set()
@@ -372,6 +379,14 @@ def ingest_segment(
     urls_todo = [u for u in urls if u not in skip_urls]
     # Url to process (not skipped) count
     total_urls = len(urls_todo)
+
+    # Progress log frequency based on part_size.
+    # - If part_size is small, keep that cadence.
+    # - If part_size is large, ensure at least ~10 progress logs over the segment.
+    # Always keep a minimum interval of 1.
+    min_logs_target = 10
+    interval_for_min_logs = max(1, (total_urls + min_logs_target - 1) // min_logs_target)
+    progress_log_every = max(1, min(part_size, interval_for_min_logs))
     
     # We define a prefix for the raw data files in storage based on the date, run ID, and segment.
     raw_prefix = f"dt={dt}/run_id={run_id}/segment={segment}_raw/"
@@ -387,15 +402,16 @@ def ingest_segment(
     ko = 0
     processed = 0
     total_written = 0
-    buffer: List[Dict[str, Any]] = []
+    buffer: List[wtt_bronze_datamodels] = []
 
     start_time = time.time()
     last_checkpoint_time = start_time
     
     logger.info(f"Start segment={segment} | urls_total={len(urls)} | skip={len(skip_urls)} | todo={len(urls_todo)} | workers={workers} | part_size={part_size} | next_part={part_no}" )
     
-    # Unique task_id for this segment operation
-    segment_task_id = f"{run_id}-{segment}-start"
+    # Standardized task_id prefix for this segment operation (easier filtering in DB/Grafana)
+    segment_task_prefix = f"{run_id}:segment={segment}"
+    segment_task_id = f"{segment_task_prefix}:event=start"
     
     log_to_db(
         endpoint='welcome_to_the_jungle',
@@ -463,7 +479,7 @@ def ingest_segment(
             "written": 0,
             "updated_at": utc_now_iso(),
         })
-        segment_task_id_empty = f"{run_id}-{segment}-empty"
+        segment_task_id_empty = f"{segment_task_prefix}:event=empty"
         log_to_db(
             endpoint='welcome_to_the_jungle',
             level='INFO',
@@ -518,20 +534,23 @@ def ingest_segment(
             else:
                 key_id = compute_company_key(res.url)
 
-            record = {
-                "source": "welcometothejungle",
-                "segment": segment,
-                "url": res.url,
-                "fetched_at": fetched_at,
-                "status_code": res.status_code,
-                "ok": res.ok,
-                "error": res.error,
-                "key": key_id,
-                "initial_data": initial_data,
-                "job_data": job_data if segment == "jobs" else None,
-                "parser_version": 1,
-            }
-
+            # Convert the record to a datamodel instance, 
+            # which ensures consistent structure and types, and then to a dict for storage (via asdict).
+            # We use dataclasses for the bronze datamodels, so asdict is appropriate here (.dict is for pydantic).
+            record = asdict(wtt_bronze_datamodels(
+                source="welcometothejungle",
+                segment=segment,
+                url=res.url,
+                fetched_at=fetched_at,
+                status_code=res.status_code,
+                ok=res.ok,
+                error=res.error,
+                key=key_id,
+                initial_data=initial_data if initial_data else {},
+                job_data=job_data if job_data else {},
+                parser_version=1,
+            ))
+            
             buffer.append(record)
 
             # HTML gz (optionnel)
@@ -559,7 +578,7 @@ def ingest_segment(
                 progress_callback(segment, processed, total_urls, ok, ko)
 
             # Progress (% + ETA)
-            if processed % int(os.getenv("WTTJ_LOG_EACH_XX_URL", "100")) == 0 or processed == total_urls:
+            if processed % progress_log_every == 0 or processed == total_urls:
                 elapsed = time.time() - start_time
                 rate = processed / elapsed if elapsed > 0 else 0.0
                 remaining = total_urls - processed
@@ -584,7 +603,7 @@ def ingest_segment(
                 )
                 
                 # Log progress to database for real-time monitoring
-                segment_task_id_progress = f"{run_id}-{segment}-progress-{processed}"
+                segment_task_id_progress = f"{segment_task_prefix}:event=progress:count={processed:06d}"
                 log_to_db(
                     endpoint='welcome_to_the_jungle',
                     level='INFO',
@@ -621,7 +640,7 @@ def ingest_segment(
     )
     
     # Log to database
-    segment_task_id_end = f"{run_id}-{segment}-end"
+    segment_task_id_end = f"{segment_task_prefix}:event=end"
     log_to_db(
         endpoint='welcome_to_the_jungle',
         level='INFO',

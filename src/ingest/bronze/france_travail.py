@@ -11,6 +11,9 @@ This script performs the following steps:
 3. If the total is below a defined threshold (FT_MAX_RETRIEVABLE), retrieve all offers in a single pass.
 4. If the total exceeds the threshold, split the retrieval into time windows (e.g., 7-day windows) to ensure we stay within API limits.
 5. Store the retrieved offers in the bronze layer storage, partitioned by date and ROME code for efficient querying in later stages.
+
+The main function `ingest_france_travail_offers` can be called from a CLI or scheduled to run periodically (e.g., daily)
+It can be called via a microservice endpoint in FastAPI, allowing for on-demand ingestion or pipeline integration.
 """
 
 import os

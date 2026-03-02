@@ -33,13 +33,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
+# Model
+from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
+
 # Imports applicatifs
 from src.ingest.silver.welcome_to_jungle import normalize_wttj_jobs
-from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
 from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.france_travail import ingest_france_travail_offers
 from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
-from src.data.make_merge_dataset_ft_wttj_with_rome import merge_ft_wttj_datasets
+from src.ingest.silver.merge_ft_wttj import merge_ft_wttj_datasets
 from src.observability.job_store import JobStore
 from src.utils.log_to_db import log_to_db
 from src.utils.time_helpers import format_eta
@@ -583,6 +585,8 @@ def run_welcome_to_jungle_task(
     mode: str,
     max_jobs: int,
     max_companies: int,
+    workers: int,
+    part_size: int,
     provided_run_id: str | None,
     resume_from_run_id: str | None,
 ):
@@ -628,6 +632,8 @@ def run_welcome_to_jungle_task(
             mode=mode,
             max_jobs=max_jobs,
             max_companies=max_companies,
+            workers=workers,
+            part_size=part_size,
             provided_run_id=provided_run_id,
             resume_from_run_id=resume_from_run_id,
             progress_callback=update_progress,
@@ -1467,6 +1473,8 @@ async def ingest_wttj_endpoint(
     mode: str = Query("new", description="Mode d'ingestion (new, resume, incremental)"),
     max_jobs: int = Query(0, description="Limiter le nombre de jobs (0 = tous)"),
     max_companies: int = Query(0, description="Limiter le nombre de companies (0 = tous)"),
+    workers: int = Query(10, description="Nombre de workers concurrents (défaut: 10)"),
+    part_size: int = Query(500, description="Taille des chunks JSONL en records (défaut: 500)"),
     provided_run_id: str | None = Query(None, description="Run ID à utiliser en mode resume"),
     resume_from_run_id: str | None = Query(None, description="Run ID source pour mode incremental"),
 ):
@@ -1476,11 +1484,13 @@ Collecte les URLs depuis les sitemaps et extrait les données structurées
 des pages jobs et companies pour stockage en bronze.
 """
     logger.info(
-        "Requête d'ingestion WTTJ reçue (background=%s, mode=%s, max_jobs=%s, max_companies=%s, provided_run_id=%s, resume_from_run_id=%s)",
+        "Requête d'ingestion WTTJ reçue (background=%s, mode=%s, max_jobs=%s, max_companies=%s, workers=%s, part_size=%s, provided_run_id=%s, resume_from_run_id=%s)",
         background,
         mode,
         max_jobs,
         max_companies,
+        workers,
+        part_size,
         provided_run_id,
         resume_from_run_id,
     )
@@ -1495,11 +1505,13 @@ des pages jobs et companies pour stockage en bronze.
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
-            "message": f"Ingestion WTTJ en cours (mode: {mode}, jobs: {max_jobs or 'tous'}, companies: {max_companies or 'tous'})...",
+            "message": f"Ingestion WTTJ en cours (mode: {mode}, jobs: {max_jobs or 'tous'}, companies: {max_companies or 'tous'}, workers: {workers}, part_size: {part_size})...",
             "params": {
                 "mode": mode,
                 "max_jobs": max_jobs,
                 "max_companies": max_companies,
+                "workers": workers,
+                "part_size": part_size,
                 "provided_run_id": provided_run_id,
                 "resume_from_run_id": resume_from_run_id,
             }
@@ -1514,10 +1526,12 @@ des pages jobs et companies pour stockage en bronze.
                     "mode": mode,
                     "max_jobs": max_jobs,
                     "max_companies": max_companies,
+                    "workers": workers,
+                    "part_size": part_size,
                     "provided_run_id": provided_run_id,
                     "resume_from_run_id": resume_from_run_id,
                 },
-                message=f"Ingestion WTTJ en cours (mode: {mode}, jobs: {max_jobs or 'tous'}, companies: {max_companies or 'tous'})...",
+                message=f"Ingestion WTTJ en cours (mode: {mode}, jobs: {max_jobs or 'tous'}, companies: {max_companies or 'tous'}, workers: {workers}, part_size: {part_size})...",
             )
         
         # Lancer en arrière-plan avec wrapper
@@ -1528,7 +1542,9 @@ des pages jobs et companies pour stockage en bronze.
             mode,
             max_jobs,
             max_companies,
-            provided_run_id,
+            workers,
+            part_size,
+            provided_run_id or task_id,
             resume_from_run_id,
         )
         
@@ -1546,6 +1562,8 @@ des pages jobs et companies pour stockage en bronze.
                 mode=mode,
                 max_jobs=max_jobs,
                 max_companies=max_companies,
+                workers=workers,
+                part_size=part_size,
                 provided_run_id=provided_run_id,
                 resume_from_run_id=resume_from_run_id,
             )

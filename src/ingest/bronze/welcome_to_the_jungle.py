@@ -19,6 +19,9 @@ about the job offer or company profile, so we don't need to execute JavaScript o
 
 And no html parsing is needed to extract specific fields, which makes the ingestion more efficient and less resource-intensive.
 
+The main function `ingest_welcome_to_the_jungle` can be called from a CLI or scheduled to run periodically (e.g., daily).
+It also can be called via a microservice endpoint in FastAPI, allowing for on-demand ingestion or integration with other systems.
+
 """
 from __future__ import annotations
 
@@ -106,6 +109,8 @@ def ingest_welcome_to_the_jungle(
     store_html_mode: str = None,
     provided_run_id: str = None,
     resume_from_run_id: str = None,
+    workers: int = None,
+    part_size: int = None,
     progress_callback: Optional[Callable[[str, int, int, int, int], None]] = None
 ) -> Dict[str, Any]:
     """
@@ -119,6 +124,8 @@ def ingest_welcome_to_the_jungle(
         store_html_mode: Mode de stockage HTML (never, always, on_error)
         provided_run_id: Run ID à utiliser en mode resume
         resume_from_run_id: Run ID source pour mode incremental
+        workers: Nombre de workers concurrents (défaut: 10)
+        part_size: Taille des chunks JSONL en nombre de records (défaut: 500)
         progress_callback: Callback appelé avec (segment, current, total, ok, ko)
         
     Returns:
@@ -134,19 +141,21 @@ def ingest_welcome_to_the_jungle(
         provided_run_id = provided_run_id or (os.getenv("WTTJ_RUN_ID") or "").strip()
         resume_from_run_id = resume_from_run_id or (os.getenv("WTTJ_RESUME_FROM_RUN_ID") or "").strip()
         store_html_mode = store_html_mode or os.getenv("WTTJ_STORE_HTML", "on_error")
+        workers = workers if workers is not None else int(os.getenv("WTTJ_WORKERS", "10"))
+        part_size = part_size if part_size is not None else int(os.getenv("WTTJ_PART_SIZE", "500"))
         max_jobs = max_jobs if max_jobs is not None else int(os.getenv("WTTJ_MAX_JOBS", "0"))
         max_companies = max_companies if max_companies is not None else int(os.getenv("WTTJ_MAX_COMPANIES", "0"))
         
-        if mode == "resume":
-            if not provided_run_id:
-                return {
-                    "success": False,
-                    "message": "Mode resume nécessite un run_id",
-                    "error": "WTTJ_RUN_MODE=resume requires WTTJ_RUN_ID"
-                }
-            run_id = provided_run_id
-        else:
-            run_id = utc_run_id()
+        if mode == "resume" and not provided_run_id:
+            return {
+                "success": False,
+                "message": "Mode resume nécessite un run_id",
+                "error": "WTTJ_RUN_MODE=resume requires WTTJ_RUN_ID"
+            }
+
+        # If provided_run_id is set (e.g. from API task), reuse it for storage and log correlation.
+        # Otherwise, generate a fresh run_id.
+        run_id = provided_run_id if provided_run_id else utc_run_id()
         
         rps = float(os.getenv("WTTJ_RPS", "2"))
         burst = int(os.getenv("WTTJ_BURST", "4"))
@@ -216,7 +225,9 @@ def ingest_welcome_to_the_jungle(
             limiter=limiter,
             store_html_mode=store_html_mode,
             skip_urls=skip_jobs,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            part_size=part_size,
+            workers=workers 
         )
         
         # Process companies segment
@@ -230,7 +241,9 @@ def ingest_welcome_to_the_jungle(
             limiter=limiter,
             store_html_mode=store_html_mode,
             skip_urls=skip_companies,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            part_size=part_size,
+            workers=workers
         )
         
         elapsed = time.time() - started
@@ -362,6 +375,10 @@ def main_cli() -> None:
 
     logger.info("Final URL counts | jobs=%d | companies=%d", len(jobs), len(companies))
 
+    # Read workers and part_size from environment or use defaults
+    workers = int(os.getenv("WTTJ_WORKERS", "10"))
+    part_size = int(os.getenv("WTTJ_PART_SIZE", "500"))
+
     # We then call the ingest_segment function for both jobs and companies.
     ingest_segment(
         dt=dt,
@@ -372,6 +389,8 @@ def main_cli() -> None:
         session=session,
         limiter=limiter,
         store_html_mode=store_html_mode,
+        workers=workers,
+        part_size=part_size,
         skip_urls=skip_jobs,
     )
 
@@ -384,6 +403,8 @@ def main_cli() -> None:
         session=session,
         limiter=limiter,
         store_html_mode=store_html_mode,
+        workers=workers,
+        part_size=part_size,
         skip_urls=skip_companies,
     )
 
