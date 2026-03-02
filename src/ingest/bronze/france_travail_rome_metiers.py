@@ -1,3 +1,22 @@
+""" 
+==============
+BRONZE Layer
+==============
+ Ingest France Travail (FT) ROME referential data into the bronze layer.
+ 
+ ROME is the French national classification of jobs, with codes and labels for each métier (job category).
+ This script retrieves the list of ROME codes and their corresponding labels from the France Travail API,
+ and stores them in the bronze layer storage as a JSONL file for later use in the data pipeline.
+
+The main function `ingest_rome_metiers` can be called from a CLI or scheduled to run periodically (e.g., daily)
+to keep the ROME referential data up to date. It handles errors gracefully and logs the process for observability.
+
+This import function is also exposed in FastAPI to pilot ingestion via a micoservice endpoint, 
+allowing for on-demand ingestion or integration with other systems.
+ 
+"""
+
+
 from src import data
 from src.ingest.clients.france_travail_client import FranceTravailClient
 from src.storage.storage import get_storage_from_env, Storage

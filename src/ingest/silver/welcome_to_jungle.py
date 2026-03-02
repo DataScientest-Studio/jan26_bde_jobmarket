@@ -16,26 +16,25 @@ Method is expose in a CLI entry point (main) and can be called by API in order t
 For example with airflow or any scheduler.
 """
 from __future__ import annotations
-import os
 import uuid
 import time
 import pandas as pd
 import json
 from typing import List
 
-from src.utils.wttj_utils import get_field_or_default, find_field_in_json, _fix_double_encoded_dict, get_json_field_from_record
-from src.utils.text_processing import clean_html
-from src.utils.storage_tools import get_last_dt_from_storage
-from src.utils.rome import get_rome_code_from_ml_prediction
-
-from src.config.env import require_env, get_project_root, load_project_env
+from src.config.env import load_project_env
 load_project_env()  # safe à rappeler (idempotent)
 
-from src.storage.storage import get_storage_from_env
+# Classes
+from src.ingest.data_models.silver_datamodel_class import silver_wttj, NormalizeWTTJResult
+# Utils
+from src.utils.wttj_utils import get_field_or_default, get_json_field_from_record, _fix_double_encoded_dict
+from src.utils.text_processing import clean_html
+from src.utils.storage_tools import get_last_dt_from_storage
 from src.utils.log_to_db import log_to_db
-
+from src.utils.rome import get_rome_code_from_ml_prediction
+from src.storage.storage import get_storage_from_env
 import src.utils.time_helpers as time_helpers
-from src.ingest.data_models.welcome_to_the_jungle_class import WTTJ
 
 # Pour forcer l’affichage en console pour tous les loggers,
 # à ajouter avant toute création de logger :
@@ -46,16 +45,6 @@ logging.basicConfig(level=logging.INFO)
 # ----------------------------
 logger = logging.getLogger(__name__)
 structured_logger = logging.getLogger("structured")
-
-class NormalizeWTTJResult:
-    def __init__(self, job_id, status, dt, output_format, files, errors):
-        self.job_id = job_id
-        self.status = status
-        self.dt = dt
-        self.format = output_format
-        self.files = files
-        self.errors = errors
-
 
 def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTTJResult:
     job_id = f"wttj-normalize-{dt}-{uuid.uuid4().hex[:8]}"
@@ -135,7 +124,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                     rome_code, rome_label = get_rome_code_from_ml_prediction(name, description)
                     profession = get_field_or_default(record, 'profession')
 
-                    wttj =WTTJ(
+                    wttj =silver_wttj(
                         reference=job_data.get("reference"),
                         name=name,
                         description=description,
