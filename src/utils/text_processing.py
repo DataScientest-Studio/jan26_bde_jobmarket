@@ -92,9 +92,9 @@ def normalize_text(text: Optional[str]) -> str:
     return text.strip()
 
 
-def extract_skills_list(skills_data) -> List[str]:
+def normalize_list_to_strings(list_data) -> List[str]:
     """
-    Extrait une liste de compétences depuis différents formats.
+    Normalises any list field (skills, offices, missions, sectors, etc.) to a consistent List[str] format.
     
     Gère les formats suivants:
     - Chaîne de caractères avec séparateur virgule
@@ -109,37 +109,37 @@ def extract_skills_list(skills_data) -> List[str]:
         Liste de compétences (strings)
         
     Examples:
-        >>> extract_skills_list("Python, JavaScript, SQL")
+        >>> normalize_list_to_strings("Python, JavaScript, SQL")
         ['Python', 'JavaScript', 'SQL']
         
-        >>> extract_skills_list(["Python", "JavaScript"])
+        >>> normalize_list_to_strings(["Python", "JavaScript"])
         ['Python', 'JavaScript']
         
-        >>> extract_skills_list([{"name": "Python"}, {"name": "SQL"}])
+        >>> normalize_list_to_strings([{"name": "Python"}, {"name": "SQL"}])
         ['Python', 'SQL']
         
-        >>> extract_skills_list(None)
+        >>> normalize_list_to_strings(None)
         []
     """
     # Handle None, empty strings, or empty lists
-    if skills_data is None or (isinstance(skills_data, str) and not skills_data.strip()):
+    if list_data is None or (isinstance(list_data, str) and not list_data.strip()):
         return []
     
     # If it's a comma-separated string
-    if isinstance(skills_data, str):
-        return [s.strip() for s in skills_data.split(",") if s.strip()]
+    if isinstance(list_data, str):
+        return [s.strip() for s in list_data.split(",") if s.strip()]
     
     # If it's already a list of strings or dicts
-    if isinstance(skills_data, list):
-        skills = []
-        for item in skills_data:
+    if isinstance(list_data, list):
+        items = []
+        for item in list_data:
             if isinstance(item, str):
-                skills.append(item.strip())  # strip() directly
+                items.append(item.strip())
             elif isinstance(item, dict):
                 name = item.get("name", "")
-                if isinstance(name, str) and name.strip():  # Check if name is a non-empty string
-                    skills.append(name.strip())
-        return skills
+                if isinstance(name, str) and name.strip():
+                    items.append(name.strip())
+        return items
     
     # Other format? Convert to string
-    return [str(skills_data).strip()]
+    return [str(list_data).strip()]
