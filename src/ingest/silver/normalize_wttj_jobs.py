@@ -29,7 +29,7 @@ load_project_env()  # safe à rappeler (idempotent)
 from src.ingest.data_models.silver_datamodel_class import silver_wttj, NormalizeWTTJResult
 # Utils
 from src.utils.wttj_utils import get_field_or_default, get_json_field_from_record, _fix_double_encoded_dict
-from src.utils.text_processing import clean_html
+from src.utils.text_processing import clean_html, normalize_list_to_strings
 from src.utils.storage_tools import get_last_dt_from_storage
 from src.utils.log_to_db import log_to_db
 from src.utils.rome import get_rome_code_from_ml_prediction
@@ -45,6 +45,24 @@ logging.basicConfig(level=logging.INFO)
 # ----------------------------
 logger = logging.getLogger(__name__)
 structured_logger = logging.getLogger("structured")
+
+
+def _normalize_profession_value(value):
+    """
+    Normalise "profession" field to ensure it's a string. If it's a dict with a "name" key, use that.
+    Otherwise, it generate mixed types in the profession column which can cause issues 
+    in downstream processing (parquet schema saved with mixed types, or jsonl with inconsistent formats).
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        name = value.get("name")
+        if name is not None:
+            return str(name)
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTTJResult:
     job_id = f"wttj-normalize-{dt}-{uuid.uuid4().hex[:8]}"
@@ -127,7 +145,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                     name = clean_html(job_data.get("name", ""))
                     description = clean_html(job_data.get("description", ""))
                     rome_code, rome_label = get_rome_code_from_ml_prediction(name, description)
-                    profession = get_field_or_default(record, 'profession')
+                    profession = _normalize_profession_value(get_field_or_default(record, 'profession'))
 
                     wttj =silver_wttj(
                         reference=job_data.get("reference"),
@@ -151,10 +169,10 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                         contract_type=job_data.get("contract_type"),
                         urls=urls_list,
                         canonical_url=canonical_url,
-                        skills=job_data.get("skills", [""]),
-                        key_missions=job_data.get("key_missions", [""]),
-                        offices=job_data.get("offices", [""]),
-                        sectors=get_field_or_default(record, 'sectors', []),
+                        skills=normalize_list_to_strings(job_data.get("skills", [])),
+                        key_missions=normalize_list_to_strings(job_data.get("key_missions", [])),
+                        offices=normalize_list_to_strings(job_data.get("offices", [])),
+                        sectors=normalize_list_to_strings(get_field_or_default(record, 'sectors', [])),
                         profession=profession
                         )
                     # vars: convertit les champs de la class python en dict, prêt pour DataFrame ou JSON
