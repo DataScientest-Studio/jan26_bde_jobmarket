@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 
 from src.storage.storage import get_storage_from_env
 from src.ingest.data_models.silver_datamodel_class import Silver_Datamodel
-from src.utils import find_latest_data_prefix, clean_html, normalize_text, extract_skills_list
+from src.utils import find_latest_data_prefix, clean_html, normalize_text, normalize_list_to_strings
 
 load_dotenv()
 
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # =============================
 # Configuration
 # =============================
-FT_BRONZE_PREFIX = os.getenv("FT_BRONZE_PREFIX", "bronze/dt=2026-02-18/run_id=20260217T181105Z/segment=jobs_raw")
+FT_BRONZE_PREFIX = os.getenv("FT_BRONZE_PREFIX", "offers/dt=2026-02-18/run_id=20260217T181105Z/segment=jobs_raw")
 WTTJ_SILVER_PREFIX = os.getenv("WTTJ_SILVER_PREFIX", "silver/dt=2026-02-22/run_id=20260222T010000Z/segment=jobs")
 MERGED_DATASET_PREFIX  = os.getenv("MERGED_DATASET_PREFIX", "datasets/ft_wttj_merged")
 
@@ -163,7 +163,7 @@ def process_ft_file_with_timing(storage, key: str) -> Tuple[List[Dict], Dict[str
                     "published_at": record.get("dateCreation", ""),
                     "updated_at": record.get("dateActualisation", ""),
                     "url": url,
-                    "existing_skills": extract_skills_list(record.get("competences", [])),
+                    "existing_skills": normalize_list_to_strings(record.get("competences", [])),
                     "company_name": company_name,
                 })
             except Exception:
@@ -236,7 +236,7 @@ def process_ft_file(storage, key: str) -> List[Dict]:
                     "published_at": record.get("dateCreation", ""),
                     "updated_at": record.get("dateActualisation", ""),
                     "url": url,
-                    "existing_skills": extract_skills_list(record.get("competences", [])),
+                    "existing_skills": normalize_list_to_strings(record.get("competences", [])),
                     "company_name": company_name,
                 })
                 
@@ -449,12 +449,12 @@ def normalize_ft_data(df: pd.DataFrame) -> pd.DataFrame:
             experience_level=row.get("experience_level", ""),
             salary_min=row.get("salary_min"),
             salary_max=row.get("salary_max"),
-            location_city=row.get("location_city", ""),
+            job_city=row.get("location_city", ""),
             location_department=row.get("location_department", ""),
             published_at=row.get("published_at", ""),
             updated_at=row.get("updated_at", ""),
             url=row.get("url", ""),
-            existing_skills=row.get("existing_skills", []),
+            skills=row.get("existing_skills", []),
             company_name=row.get("company_name", "")
         )
         normalized_data.append(silver_obj.to_dict())
@@ -556,7 +556,7 @@ def normalize_wttj_data(df: pd.DataFrame) -> pd.DataFrame:
         bar.set_postfix({"id": row.get("wttj_reference", "N/A")})
         
         # Parse JSON strings if needed
-        skills = extract_skills_list(row.get("skills", []))
+        skills = normalize_list_to_strings(row.get("skills", []))
         
         # Use Silver_Datamodel for normalization
         silver_obj = Silver_Datamodel(
@@ -571,12 +571,12 @@ def normalize_wttj_data(df: pd.DataFrame) -> pd.DataFrame:
             experience_level=row.get("experience_level", ""),
             salary_min=row.get("salary_min"),
             salary_max=row.get("salary_max"),
-            location_city="",  # À extraire de offices si besoin
+            job_city="",  # À extraire de offices si besoin
             location_department="",
             published_at=row.get("published_at", ""),
             updated_at=row.get("updated_at", ""),
             url=row.get("canonical_url", ""),
-            existing_skills=skills,
+            skills=skills,
             company_name=""  # Disponible dans company_summary si besoin
         )
         
@@ -810,15 +810,8 @@ def merge_ft_wttj_datasets(
     """
     start_time = time.perf_counter()
     # Storages
-    storage_ft = get_storage_from_env(
-        os.getenv("FT_DATA_DIR", "data/france_travail"),
-        os.getenv("S3_PREFIX_FT", "france_travail"),
-    )
-    
-    storage_wttj = get_storage_from_env(
-        os.getenv("WTTJ_DATA_DIR", "data/welcometothejungle"),
-        os.getenv("S3_PREFIX_WTTJ", "welcometothejungle"),
-    )
+    storage_ft = get_storage_from_env("bronze", "france_travail")
+    storage_wttj = get_storage_from_env("bronze", "welcometothejungle")
     
     # Auto-detection of prefixes if not specified
     if not ft_prefix:
@@ -890,10 +883,7 @@ def merge_ft_wttj_datasets(
     # Save merged dataset 
     if progress_callback:
         progress_callback("saving", f"Sauvegarde du dataset ({len(df_merged):,} offres)...")
-    storage_output = get_storage_from_env(
-        os.getenv("MERGED_DATASET_PREFIX", "data/silver"),
-        os.getenv("MERGED_DATASET_S3_PREFIX", "silver"),
-    )
+    storage_output = get_storage_from_env("silver", "merged")
 
     output_key = save_dataset(df_merged, storage_output, output_format)
     
