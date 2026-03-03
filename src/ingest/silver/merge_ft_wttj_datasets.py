@@ -16,6 +16,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import tqdm
 import time
 from collections import Counter
@@ -83,13 +84,14 @@ def safe_str_to_datetime(value: Any) -> Optional[datetime]:
         value = value.strip()
         if not value:
             return None
-        # Try common date formats
-        for fmt in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"]:
+        # Try common date formats (ISO 8601 with Z and microseconds, standard formats)
+        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"]:
             try:
                 return datetime.strptime(value, fmt)
             except ValueError:
                 continue
-        # Logging suppressed to avoid flooding logs
+        # Log warning if no format matched
+        logger.warning(f"⚠️ Failed to parse datetime value: '{value}' (tried all known formats)")
         return None
     return None
 
@@ -530,7 +532,7 @@ def merge_and_deduplicate(df_ft: pd.DataFrame, df_wttj: pd.DataFrame) -> pd.Data
 # =============================
 # Save dataset
 # =============================
-def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "parquet") -> str:
+def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "parquet", dt_ft: Optional[str] = None, dt_wttj: Optional[str] = None) -> str:
     """
     Save the merged dataset.
     
@@ -538,19 +540,25 @@ def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "par
         df: DataFrame to save
         storage: Storage instance
         format: Output format (parquet, jsonl, csv)
+        dt_ft: Date from FT Bronze prefix (for filename)
+        dt_wttj: Date from WTTJ Silver prefix (for filename)
         
     Returns:
         Output key where data was saved
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
     if format == "parquet":
-        output_key = f"merged_dataset_{timestamp}.parquet"
+        if dt_ft and dt_wttj:
+            output_key = f"merged_ft_dt={dt_ft}_wttj_dt={dt_wttj}.parquet"
+        else:
+            output_key = "merged_ft_wttj.parquet"
         logger.info(f"💾 Sauvegarde Parquet: {output_key}")
         storage.write_parquet(output_key, df)
         
     elif format == "jsonl":
-        output_key = f"merged_dataset_{timestamp}.jsonl"
+        if dt_ft and dt_wttj:
+            output_key = f"merged_ft_dt={dt_ft}_wttj_dt={dt_wttj}.jsonl"
+        else:
+            output_key = "merged_ft_wttj.jsonl"
         logger.info(f"💾 Save JSONL: {output_key}")
         
         # Convert to JSONL
@@ -558,7 +566,10 @@ def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "par
         storage.put_object(output_key, jsonl_data.encode('utf-8'))
         
     elif format == "csv":
-        output_key = f"merged_dataset_{timestamp}.csv"
+        if dt_ft and dt_wttj:
+            output_key = f"merged_ft_dt={dt_ft}_wttj_dt={dt_wttj}.csv"
+        else:
+            output_key = "merged_ft_wttj.csv"
         logger.info(f"💾 Save CSV: {output_key}")
         
         # Convert lists to JSON strings for CSV
@@ -670,12 +681,18 @@ def merge_ft_wttj_datasets(
         progress_callback("merging", "Fusion et déduplication...")
     df_merged = merge_and_deduplicate(df_ft, df_wttj)
     
+    # Extract dt from prefixes for filename
+    dt_ft_match = re.search(r'dt=([0-9\-]+)', ft_prefix)
+    dt_wttj_match = re.search(r'dt=([0-9\-]+)', wttj_prefix)
+    dt_ft = dt_ft_match.group(1) if dt_ft_match else None
+    dt_wttj = dt_wttj_match.group(1) if dt_wttj_match else None
+    
     # Save merged dataset 
     if progress_callback:
         progress_callback("saving", f"Sauvegarde du dataset ({len(df_merged):,} offres)...")
     storage_output = get_storage_from_env("silver", "merged")
 
-    output_key = save_pd_to_storage_with_format(df_merged, storage_output, output_format)
+    output_key = save_pd_to_storage_with_format(df_merged, storage_output, output_format, dt_ft, dt_wttj)
 
     # Statistics
     if progress_callback:
