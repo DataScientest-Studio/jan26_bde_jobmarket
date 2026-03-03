@@ -34,7 +34,10 @@ def find_latest_data_prefix(storage, base_prefix: str, segment: str = "") -> Opt
     """
     try:
         # Construire le préfixe de recherche: base_prefix/segment/
-        search_prefix = f"{base_prefix}/{segment}/" if segment else f"{base_prefix}/"
+        if(segment and not base_prefix):
+            search_prefix = f"{segment}"
+        else:
+            search_prefix = f"{base_prefix}/{segment}/" if segment else f"{base_prefix}/"
         full_search_prefix = storage._full_key(search_prefix)
         
         logger.info(f"🔍 Recherche des dates sous: {search_prefix}")
