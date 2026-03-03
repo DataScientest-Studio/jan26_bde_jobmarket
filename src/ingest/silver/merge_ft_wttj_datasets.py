@@ -21,7 +21,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import orjson  # 10x faster than standard json
@@ -34,7 +34,8 @@ from dotenv import load_dotenv
 
 from src.storage.storage import get_storage_from_env
 from src.ingest.data_models.silver_datamodel_class import Silver_Datamodel
-from src.utils import find_latest_data_prefix, clean_html, normalize_text, extract_skills_list
+from src.utils import find_latest_data_prefix, clean_html, normalize_text, normalize_list_to_strings
+import src.utils.merge_dataset_utils as merge_utils
 
 load_dotenv()
 
@@ -54,202 +55,89 @@ MERGED_DATASET_PREFIX  = os.getenv("MERGED_DATASET_PREFIX", "datasets/ft_wttj_me
 
 
 # =============================
+# Type Conversion Helpers
+# =============================
+def safe_str_to_float(value: Any) -> float:
+    """Convert various types to float, return 0.0 for invalid/None values."""
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, float):
+        return value
+    if isinstance(value, int):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except (ValueError, AttributeError):
+            return 0.0
+    return 0.0
+
+
+def safe_str_to_datetime(value: Any) -> Optional[datetime]:
+    """Convert various types to datetime, return None for invalid/empty values."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+        # Try common date formats
+        for fmt in ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"]:
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+        # Logging suppressed to avoid flooding logs
+        return None
+    return None
+
+
+def safe_str_to_str(value: Any) -> str:
+    """Convert various types to string, return empty string for None values."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+# =============================
+# File Processing Helpers
+# =============================
+def _read_source_file(storage, key: str, mode: str) -> Any:
+    """
+    Generic helper to process a file depending on mode.
+
+    Modes:
+    - jsonl_records: returns List[Dict]
+    - parquet_df: returns pd.DataFrame
+    """
+    if mode == "jsonl_records":
+        records: List[Dict] = []
+        try:
+            for record in storage.read_jsonl(key):
+                try:
+                    records.append(record)
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning(f"   ⚠️ Erreur lecture {key}: {e}")
+        return records
+
+    if mode == "parquet_df":
+        try:
+            return storage.read_parquet(key)
+        except Exception as e:
+            logger.error(f"   ❌ Erreur lecture {key}: {e}")
+            return pd.DataFrame()
+
+    raise ValueError(f"Unsupported processing mode: {mode}")
+
+# =============================
 # Reading France Travail (Bronze)
 # =============================
-def process_ft_file_with_timing(storage, key: str) -> Tuple[List[Dict], Dict[str, float]]:
-    """
-    Manage jsonl reading with detailed performance measurements.
-    Returns both the records and a dict of timings for each step:
-    - network_latency: time to get_object and start reading
-    - data_transfer: time to read the entire body
-    - json_parsing: time to parse all lines into records
-    - data_transform: time to transform the records
-    - file_size_bytes: size of the file in bytes
-    - record_count: number of records
-
-    Return format: (records, timings):
-    - records: list of parsed and transformed records
-    - timings: dict with timing information for each step
-    """
-    records = []
-    timings = {
-        'network_latency': 0,
-        'data_transfer': 0,
-        'json_parsing': 0,
-        'data_transform': 0,
-        'file_size_bytes': 0,
-        'record_count': 0
-    }
-    
-    try:
-        # Measure 1: Network latency (open connection + metadata)
-        t0 = time.perf_counter()
-        full_key = storage._full_key(key)
-        resp = storage.client.get_object(Bucket=storage.bucket, Key=full_key)
-        t1 = time.perf_counter()
-        timings['network_latency'] = t1 - t0
-        
-        # Measure 2: Data transfer (read body)
-        t2 = time.perf_counter()
-        body_bytes = resp["Body"].read()
-        t3 = time.perf_counter()
-        timings['data_transfer'] = t3 - t2
-        timings['file_size_bytes'] = len(body_bytes)
-        
-        # Measure 3: Parsing JSON
-        t4 = time.perf_counter()
-        parsed_records = []
-        for line_bytes in body_bytes.split(b'\n'):
-            if not line_bytes or line_bytes.isspace():
-                continue
-            try:
-                if USE_ORJSON:
-                    parsed_records.append(orjson.loads(line_bytes))
-                else:
-                    line = line_bytes.decode('utf-8', errors='replace').strip()
-                    parsed_records.append(json.loads(line))
-            except Exception:
-                continue
-        t5 = time.perf_counter()
-        timings['json_parsing'] = t5 - t4
-        timings['record_count'] = len(parsed_records)
-        
-        # Measure 4: Data transformation
-        t6 = time.perf_counter()
-        for record in parsed_records:
-            try:
-                # Secure extraction of origineOffre.urlOrigine
-                url = ""
-                origine_offre = record.get("origineOffre", {})
-                if isinstance(origine_offre, dict):
-                    url = origine_offre.get("urlOrigine", "")
-                
-                # Secure extraction of lieuTravail
-                lieu_travail = record.get("lieuTravail", {})
-                commune = ""
-                code_postal_prefix = ""
-                if isinstance(lieu_travail, dict):
-                    commune = lieu_travail.get("commune", "")
-                    code_postal = lieu_travail.get("codePostal", "")
-                    code_postal_prefix = code_postal[:2] if code_postal else ""
-                
-                # Secure extraction of entreprise
-                entreprise = record.get("entreprise", {})
-                company_name = ""
-                if isinstance(entreprise, dict):
-                    company_name = entreprise.get("nom", "")
-                
-                # Secure extraction of salaire
-                salaire = record.get("salaire", {})
-                salary_text = ""
-                if isinstance(salaire, dict):
-                    salary_text = salaire.get("libelle", "")
-                
-                # Expected FT structure
-                records.append({
-                    "source": "FT",
-                    "id": str(record.get("id", "")),
-                    "intitule": normalize_text(record.get("intituleOffre", "")),
-                    "description": normalize_text(record.get("description", "")),
-                    "profile": normalize_text(record.get("experienceExigence", "")),
-                    "rome_code": record.get("romeCode", ""),
-                    "rome_label": record.get("romeLibelle", ""),
-                    "contract_type": record.get("typeContrat", ""),
-                    "experience_level": record.get("experienceLibelle", ""),
-                    "salary_min": salary_text,
-                    "salary_max": None,
-                    "location_city": commune,
-                    "location_department": code_postal_prefix,
-                    "published_at": record.get("dateCreation", ""),
-                    "updated_at": record.get("dateActualisation", ""),
-                    "url": url,
-                    "existing_skills": extract_skills_list(record.get("competences", [])),
-                    "company_name": company_name,
-                })
-            except Exception:
-                continue
-        t7 = time.perf_counter()
-        timings['data_transform'] = t7 - t6
-        
-    except Exception as e:
-        logger.warning(f"   ⚠️ Erreur lecture {key}: {e}")
-    
-    return records, timings
-
-
-def process_ft_file(storage, key: str) -> List[Dict]:
-    """
-    Traite un fichier JSONL France Travail et retourne une liste de records.
-    Fonction helper pour parallélisation.
-    """
-    records = []
-    
-    try:
-        # Utilise read_jsonl optimisé du storage (lit tout d'un coup)
-        # Au lieu de get_object + iter_lines (plus lent)
-        for record in storage.read_jsonl(key):
-            try:
-                # record est déjà parsé par storage.read_jsonl()
-                
-                # Extraction sécurisée de origineOffre.urlOrigine
-                url = ""
-                origine_offre = record.get("origineOffre", {})
-                if isinstance(origine_offre, dict):
-                    url = origine_offre.get("urlOrigine", "")
-                
-                # Extraction sécurisée de lieuTravail
-                lieu_travail = record.get("lieuTravail", {})
-                commune = ""
-                code_postal_prefix = ""
-                if isinstance(lieu_travail, dict):
-                    commune = lieu_travail.get("commune", "")
-                    code_postal = lieu_travail.get("codePostal", "")
-                    code_postal_prefix = code_postal[:2] if code_postal else ""
-                
-                # Extraction sécurisée de entreprise
-                entreprise = record.get("entreprise", {})
-                company_name = ""
-                if isinstance(entreprise, dict):
-                    company_name = entreprise.get("nom", "")
-                
-                # Extraction sécurisée de salaire
-                salaire = record.get("salaire", {})
-                salary_text = ""
-                if isinstance(salaire, dict):
-                    salary_text = salaire.get("libelle", "")
-                
-                # Structure FT attendue
-                records.append({
-                    "source": "FT",
-                    "id": str(record.get("id", "")),
-                    "intitule": normalize_text(record.get("intituleOffre", "")),
-                    "description": normalize_text(record.get("description", "")),
-                    "profile": normalize_text(record.get("experienceExigence", "")),
-                    "rome_code": record.get("romeCode", ""),
-                    "rome_label": record.get("romeLibelle", ""),
-                    "contract_type": record.get("typeContrat", ""),
-                    "experience_level": record.get("experienceLibelle", ""),
-                    "salary_min": salary_text,
-                    "salary_max": None,
-                    "location_city": commune,
-                    "location_department": code_postal_prefix,
-                    "published_at": record.get("dateCreation", ""),
-                    "updated_at": record.get("dateActualisation", ""),
-                    "url": url,
-                    "existing_skills": extract_skills_list(record.get("competences", [])),
-                    "company_name": company_name,
-                })
-                
-            except Exception as e:
-                # Erreur d'extraction sur un record spécifique
-                continue
-                
-    except Exception as e:
-        logger.warning(f"   ⚠️ Erreur lecture {key}: {e}")
-    
-    return records
-
-
 def read_ft_bronze_data(storage, prefix: str) -> pd.DataFrame:
     """
     Lit les données France Travail depuis la couche Bronze (JSONL) avec parallélisation.
@@ -288,76 +176,6 @@ def read_ft_bronze_data(storage, prefix: str) -> pd.DataFrame:
     processed = 0
     total = len(keys)
     
-    # 🔬 PROFILING : Mesurer sur les 300 premiers fichiers
-    profiling_enabled = os.getenv("ENABLE_PROFILING", "true").lower() == "true"
-    profiling_sample_size = min(300, total)
-    
-    if profiling_enabled and total > 0:
-        logger.info(f"\n🔬 PROFILING activé : analyse de {profiling_sample_size} fichiers...")
-        profiling_timings = []
-        
-        with ThreadPoolExecutor(max_workers=min(10, profiling_sample_size)) as executor:
-            futures = {executor.submit(process_ft_file_with_timing, storage, key): key 
-                      for key in keys[:profiling_sample_size]}
-            
-            for future in as_completed(futures):
-                try:
-                    records, timings = future.result()
-                    all_records.extend(records)
-                    profiling_timings.append(timings)
-                    processed += 1
-                except Exception as e:
-                    logger.error(f"   ❌ Erreur profiling: {e}")
-        
-        # Calculer les statistiques
-        if profiling_timings:
-            avg_latency = sum(t['network_latency'] for t in profiling_timings) / len(profiling_timings)
-            avg_transfer = sum(t['data_transfer'] for t in profiling_timings) / len(profiling_timings)
-            avg_parsing = sum(t['json_parsing'] for t in profiling_timings) / len(profiling_timings)
-            avg_transform = sum(t['data_transform'] for t in profiling_timings) / len(profiling_timings)
-            avg_size = sum(t['file_size_bytes'] for t in profiling_timings) / len(profiling_timings)
-            avg_records = sum(t['record_count'] for t in profiling_timings) / len(profiling_timings)
-            
-            total_per_file = avg_latency + avg_transfer + avg_parsing + avg_transform
-            
-            # Projections sur tous les fichiers
-            proj_latency = avg_latency * total
-            proj_transfer = avg_transfer * total
-            proj_parsing = avg_parsing * total
-            proj_transform = avg_transform * total
-            proj_total = total_per_file * total
-            
-            logger.info(f"""
-📊 RÉSULTATS PROFILING ({profiling_sample_size} fichiers):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Moyennes par fichier:
-    • Latence réseau    : {avg_latency*1000:>7.1f} ms  ({avg_latency/total_per_file*100:>5.1f}%)
-    • Transfert données : {avg_transfer*1000:>7.1f} ms  ({avg_transfer/total_per_file*100:>5.1f}%)
-    • Parsing JSON      : {avg_parsing*1000:>7.1f} ms  ({avg_parsing/total_per_file*100:>5.1f}%)
-    • Transformation    : {avg_transform*1000:>7.1f} ms  ({avg_transform/total_per_file*100:>5.1f}%)
-    ────────────────────────────────────────────────────
-    • TOTAL par fichier : {total_per_file*1000:>7.1f} ms  (100.0%)
-    • Taille moyenne    : {avg_size/1024:>7.1f} KB
-    • Records moyens    : {avg_records:>7.1f}
-
-  Projections pour {total} fichiers:
-    • Latence réseau    : {proj_latency:>7.1f} s  ({proj_latency/60:>6.2f} min)
-    • Transfert données : {proj_transfer:>7.1f} s  ({proj_transfer/60:>6.2f} min)
-    • Parsing JSON      : {proj_parsing:>7.1f} s  ({proj_parsing/60:>6.2f} min)
-    • Transformation    : {proj_transform:>7.1f} s  ({proj_transform/60:>6.2f} min)
-    ────────────────────────────────────────────────────
-    • TOTAL estimé      : {proj_total:>7.1f} s  ({proj_total/60:>6.2f} min)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 Recommandation:
-   {"La latence réseau domine (>50%). Consolidez en gros fichiers !" if avg_latency/total_per_file > 0.5 else "Optimisations JSON parser et transformations recommandées."}
-""")
-        
-        # Ajuster les clés restantes
-        keys = keys[profiling_sample_size:]
-        total = len(keys)
-        logger.info(f"📦 Suite du traitement : {total} fichiers restants...\n")
-    
     if use_batching and total > 0:
         # Traitement par batches
         for batch_start in range(0, total, batch_size):
@@ -367,7 +185,7 @@ def read_ft_bronze_data(storage, prefix: str) -> pd.DataFrame:
             logger.info(f"   📦 Batch {batch_start//batch_size + 1}: fichiers {batch_start+1}-{batch_end}/{total}")
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(process_ft_file, storage, key): key for key in batch_keys}
+                futures = {executor.submit(_read_source_file, storage, key, mode="jsonl_records"): key for key in batch_keys}
                 
                 for future in as_completed(futures):
                     processed += 1
@@ -387,7 +205,7 @@ def read_ft_bronze_data(storage, prefix: str) -> pd.DataFrame:
     else:
         # Traitement direct si peu de fichiers
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_ft_file, storage, key): key for key in keys}
+            futures = {executor.submit(_read_source_file, storage, key, mode="jsonl_records"): key for key in keys}
             
             for future in as_completed(futures):
                 processed += 1
@@ -420,7 +238,6 @@ def read_ft_bronze_data(storage, prefix: str) -> pd.DataFrame:
     
     return df
 
-
 def normalize_ft_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Normalizes FT data to match the Silver_Datamodel structure.
@@ -437,25 +254,64 @@ def normalize_ft_data(df: pd.DataFrame) -> pd.DataFrame:
 
         bar.set_postfix({"id": row.get("id", "N/A")})
 
+        url = ""
+        origine_offre = row.get("origineOffre", {})
+        if isinstance(origine_offre, dict):
+            url = origine_offre.get("urlOrigine", "")
+        
+        # Extraction sécurisée de lieuTravail
+        lieu_travail = row.get("lieuTravail", {})
+        commune = ""
+        code_postal_prefix = ""
+        job_city = ""
+        job_postal_code = ""
+        if isinstance(lieu_travail, dict):
+            commune = lieu_travail.get("commune", "")
+            job_postal_code = lieu_travail.get("codePostal", "")
+            job_city = lieu_travail.get("libelle", "")
+            code_postal_prefix = job_postal_code[:2] if job_postal_code else ""
+        
+        # Extraction sécurisée de entreprise
+        entreprise = row.get("entreprise", {})
+        company_name = ""
+        if isinstance(entreprise, dict):
+            company_name = entreprise.get("nom", "")
+        
+        # Extraction sécurisée de salaire
+        salaire = row.get("salaire", {})
+        salary_text = ""
+        if isinstance(salaire, dict):
+            salary_text = salaire.get("libelle", "")
+
         silver_obj = Silver_Datamodel(
-            source="FT",
             id=str(row.get("id", "")),
+            source="FT",
+            url=url,
             title=normalize_text(row.get("intitule", "")),
             description=normalize_text(row.get("description", "")),
+            published_at=safe_str_to_datetime(row.get("dateCreation", "")),
+            updated_at=safe_str_to_datetime(row.get("dateActualisation", "")),
+            status="published",
+            rome_code=row.get("romeCode", ""),
+            rome_label=row.get("romeLibelle", ""),
+            title_description=normalize_text(row.get("appellationlibelle", "")),
+            contract_type=row.get("typeContratLibelle", ""),
+            worktime="" if pd.isna(row.get("dureeTravailLibelleConverti")) else row.get("dureeTravailLibelleConverti", ""), 
+            experience_level=row.get("experienceExige", ""),
+            experience_description=row.get("experienceLibelle", ""), 
+            naf_code=row.get("codeNAF", ""),
+            job_city=job_city,
+            job_postal_code=job_postal_code,
+            company_name=company_name,
+            company_city=commune,
+            company_postal_code=job_postal_code,
+            company_url=row.get("entreprise_url", ""),
+            salary_min=safe_str_to_float(salary_text),
+            salary_max=safe_str_to_float(salary_text),
             profile=normalize_text(row.get("profile", "")),
-            rome_code=row.get("rome_code", ""),
-            rome_label=row.get("rome_label", ""),
-            contract_type=row.get("contract_type", ""),
-            experience_level=row.get("experience_level", ""),
-            salary_min=row.get("salary_min"),
-            salary_max=row.get("salary_max"),
-            location_city=row.get("location_city", ""),
-            location_department=row.get("location_department", ""),
-            published_at=row.get("published_at", ""),
-            updated_at=row.get("updated_at", ""),
-            url=row.get("url", ""),
-            existing_skills=row.get("existing_skills", []),
-            company_name=row.get("company_name", "")
+            location_department=code_postal_prefix,
+            skills=[],
+            salary_periodicity=safe_str_to_str(salary_text)
         )
         normalized_data.append(silver_obj.to_dict())
     
@@ -468,18 +324,6 @@ def normalize_ft_data(df: pd.DataFrame) -> pd.DataFrame:
 # =============================
 # Reading WTTJ (Silver)
 # =============================
-def process_wttj_file(storage, key: str) -> pd.DataFrame:
-    """
-    Reads a single WTTJ Parquet file and returns a normalized DataFrame.
-    Helper function for parallel processing.
-    """
-    try:
-        return storage.read_parquet(key)
-    except Exception as e:
-        logger.error(f"   ❌ Erreur lecture {key}: {e}")
-        return pd.DataFrame()
-
-
 def read_wttj_parquet_file_to_df(storage, prefix: str) -> pd.DataFrame:
     """
     Reads Welcome To The Jungle data from the Silver layer (Parquet) with parallelization.
@@ -510,7 +354,7 @@ def read_wttj_parquet_file_to_df(storage, prefix: str) -> pd.DataFrame:
         logger.info(f"   Using {max_workers} workers for parallelization")
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_wttj_file, storage, key): key for key in parquet_keys}
+            futures = {executor.submit(_read_source_file, storage, key, mode="parquet_df"): key for key in parquet_keys}
             
             for i, future in enumerate(as_completed(futures), 1):
                 try:
@@ -524,7 +368,7 @@ def read_wttj_parquet_file_to_df(storage, prefix: str) -> pd.DataFrame:
     else:
         # If only one file, no need for parallelization
         try:
-            df = storage.read_parquet(parquet_keys[0])
+            df = _read_source_file(storage, parquet_keys[0], mode="parquet_df")
             dfs.append(df)
         except Exception as e:
             logger.error(f"   ❌ Error reading {parquet_keys[0]}: {e}")
@@ -535,6 +379,16 @@ def read_wttj_parquet_file_to_df(storage, prefix: str) -> pd.DataFrame:
     
     df = pd.concat(dfs, ignore_index=True)
     logger.info(f"✅ Welcome To The Jungle: {len(df):,} offers loaded")
+    
+    # Normalize list-type fields to prevent PyArrow struct/non-struct mixing
+    # (skills, offices, key_missions, sectors can contain mixed types across records)
+    if len(df) > 0:
+        for list_field in ['skills', 'offices', 'key_missions', 'sectors']:
+            if list_field in df.columns:
+                # Convert all rows to consistent List[str] format
+                df[list_field] = df[list_field].apply(lambda x: normalize_list_to_strings(x) if x is not None else [])
+                logger.info(f"   ✓ Normalized {list_field} to List[str]")
+    
     return df    
 
 
@@ -555,29 +409,39 @@ def normalize_wttj_data(df: pd.DataFrame) -> pd.DataFrame:
     for _, row in bar:
         bar.set_postfix({"id": row.get("wttj_reference", "N/A")})
         
-        # Parse JSON strings if needed
-        skills = extract_skills_list(row.get("skills", []))
+        # Normalize list fields to consistent List[str] format
+        skills = normalize_list_to_strings(row.get("skills", []))
         
         # Use Silver_Datamodel for normalization
         silver_obj = Silver_Datamodel(
-            source="WTTJ",
             id=str(row.get("wttj_reference", "")),
+            source="WTTJ",
+            url=row.get("canonical_url", ""),
             title=normalize_text(row.get("name", "")),
             description=normalize_text(row.get("description", "")),
-            profile=normalize_text(row.get("profile", "")),
+            published_at=safe_str_to_datetime(row.get("published_at", "")),
+            updated_at=safe_str_to_datetime(row.get("updated_at", "")),
+            status="published", 
             rome_code=row.get("rome_code", ""),
             rome_label=row.get("rome_label", ""),
+            title_description=normalize_text(row.get("appellationlibelle", "")),
             contract_type=row.get("contract_type", ""),
+            worktime="",
             experience_level=row.get("experience_level", ""),
-            salary_min=row.get("salary_min"),
-            salary_max=row.get("salary_max"),
-            location_city="",  # À extraire de offices si besoin
+            experience_description="",
+            naf_code="",
+            job_city="",
+            job_postal_code="",
+            company_name="",
+            company_city="",
+            company_postal_code="",
+            company_url="",
+            salary_min=safe_str_to_float(row.get("salary_min")),
+            salary_max=safe_str_to_float(row.get("salary_max")),
+            profile=normalize_text(row.get("profile", "")),
             location_department="",
-            published_at=row.get("published_at", ""),
-            updated_at=row.get("updated_at", ""),
-            url=row.get("canonical_url", ""),
-            existing_skills=skills,
-            company_name=""  # Disponible dans company_summary si besoin
+            skills=[],
+            salary_periodicity=""
         )
         
         # Convert to dict for DataFrame
@@ -663,82 +527,10 @@ def merge_and_deduplicate(df_ft: pd.DataFrame, df_wttj: pd.DataFrame) -> pd.Data
     
     return df_merged
 
-
-# =============================
-# Statistics
-# =============================
-def print_statistics(df: pd.DataFrame) -> None:
-    """Print detailed statistics of the dataset"""
-    
-    print("\n" + "=" * 80)
-    print("📊 STATISTICS OF THE MERGED DATASET")
-    print("=" * 80)
-    
-    # Global
-    print(f"\n📈 GLOBAL STATISTICS")
-    print(f"   Total offers: {len(df):,}")
-    
-    # By source
-    source_counts = df['source'].value_counts()
-    print(f"\n📦 DISTRIBUTION BY SOURCE")
-    for source, count in source_counts.items():
-        pct = count / len(df) * 100
-        print(f"   {source}: {count:,} offers ({pct:.1f}%)")
-    
-    # ROME codes
-    rome_stats = df[df['rome_code'].notna() & (df['rome_code'] != '')]
-    print(f"\n🎯 ROME CODES")
-    print(f"   Offers with ROME: {len(rome_stats):,} ({len(rome_stats)/len(df)*100:.1f}%)")
-    print(f"   Unique ROME codes: {df['rome_code'].nunique()}")
-    
-    # Top 10 ROME codes
-    print(f"\n🏆 TOP 10 ROME CODES")
-    top_rome = df['rome_code'].value_counts().head(10)
-    for rome, count in top_rome.items():
-        pct = count / len(df) * 100
-        label = df[df['rome_code'] == rome]['rome_label'].iloc[0] if not df[df['rome_code'] == rome].empty else ""
-        print(f"   {rome}: {count:,} ({pct:.1f}%) - {label}")
-    
-    # Distribution of ROME codes
-    rome_counts = df['rome_code'].value_counts()
-    print(f"\n📊 DISTRIBUTION OF ROME CODES")
-    print(f"   Codes with >1000 offers: {(rome_counts > 1000).sum()}")
-    print(f"   Codes with 100-1000 offers: {((rome_counts >= 100) & (rome_counts <= 1000)).sum()}")
-    print(f"   Codes with 50-100 offers: {((rome_counts >= 50) & (rome_counts < 100)).sum()}")
-    print(f"   Codes with <50 offers: {(rome_counts < 50).sum()}")
-    
-    # Contract types
-    print(f"\n📝 CONTRACT TYPES")
-    contract_counts = df['contract_type'].value_counts().head(5)
-    for contract, count in contract_counts.items():
-        pct = count / len(df) * 100
-        print(f"   {contract}: {count:,} ({pct:.1f}%)")
-    
-    # Experience levels
-    print(f"\n💼 EXPERIENCE LEVELS")
-    exp_counts = df['experience_level'].value_counts().head(5)
-    for exp, count in exp_counts.items():
-        pct = count / len(df) * 100
-        print(f"   {exp}: {count:,} ({pct:.1f}%)")
-    
-    # Existing skills
-    skills_present = df['existing_skills'].apply(lambda x: len(x) > 0 if isinstance(x, list) else False).sum()
-    print(f"\n🎓 EXISTING SKILLS")
-    print(f"   Offers with skills: {skills_present:,} ({skills_present/len(df)*100:.1f}%)")
-    
-    # Data quality
-    print(f"\n✅ DATA QUALITY")
-    print(f"   Title provided: {df['intitule'].notna().sum():,} ({df['intitule'].notna().sum()/len(df)*100:.1f}%)")
-    print(f"   Description provided: {df['description'].notna().sum():,} ({df['description'].notna().sum()/len(df)*100:.1f}%)")
-    print(f"   URL provided: {df['url'].notna().sum():,} ({df['url'].notna().sum()/len(df)*100:.1f}%)")
-    
-    print("\n" + "=" * 80 + "\n")
-
-
 # =============================
 # Save dataset
 # =============================
-def save_dataset(df: pd.DataFrame, storage, format: str = "parquet") -> str:
+def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "parquet") -> str:
     """
     Save the merged dataset.
     
@@ -771,7 +563,7 @@ def save_dataset(df: pd.DataFrame, storage, format: str = "parquet") -> str:
         
         # Convert lists to JSON strings for CSV
         df_csv = df.copy()
-        df_csv['existing_skills'] = df_csv['existing_skills'].apply(lambda x: json.dumps(x) if isinstance(x, list) else "[]")
+        #df_csv['existing_skills'] = df_csv['existing_skills'].apply(lambda x: json.dumps(x) if isinstance(x, list) else "[]")
         
         csv_data = df_csv.to_csv(index=False)
         storage.put_object(output_key, csv_data.encode('utf-8'))
@@ -811,7 +603,8 @@ def merge_ft_wttj_datasets(
     start_time = time.perf_counter()
     # Storages
     storage_ft = get_storage_from_env("bronze", "france_travail")
-    storage_wttj = get_storage_from_env("bronze", "welcometothejungle")
+    # For WTTJ, we read from Silver to get the latest normalized data with ROME codes
+    storage_wttj = get_storage_from_env("silver", "welcometothejungle")
     
     # Auto-detection of prefixes if not specified
     if not ft_prefix:
@@ -820,7 +613,7 @@ def merge_ft_wttj_datasets(
             logger.info("🔍 Auto-detection of FT Bronze prefix...")
             if progress_callback:
                 progress_callback("detecting_ft_prefix", "Détection du préfixe FT...")
-            ft_prefix = find_latest_data_prefix(storage_ft, "bronze", "offers")
+            ft_prefix = find_latest_data_prefix(storage_ft, "offers")
             if ft_prefix:
                 logger.info(f"   ✓ Found: {ft_prefix}")
             else:
@@ -833,7 +626,8 @@ def merge_ft_wttj_datasets(
             logger.info("🔍 Auto-detection of WTTJ Silver prefix...")
             if progress_callback:
                 progress_callback("detecting_wttj_prefix", "Détection du préfixe WTTJ...")
-            wttj_prefix = find_latest_data_prefix(storage_wttj, "silver", "")
+            wttj_prefix = find_latest_data_prefix(storage_wttj, "", "")
+            wttj_prefix+= "/segment=jobs"  # We want to ensure we get the jobs segment
             if wttj_prefix:
                 logger.info(f"   ✓ Found: {wttj_prefix}")
             else:
@@ -849,16 +643,6 @@ def merge_ft_wttj_datasets(
     logger.info(f"📂 Source WTTJ: {wttj_prefix}")
     logger.info(f"📂 Destination: {output_prefix}")
     logger.info("")
-   
-    # Read FT Bronze JSONL files to a DataFrame with parallelization
-    # and normalization to match Silver_Datamodel structure
-    if progress_callback:
-        progress_callback("reading_ft", "Lecture des données France Travail...")
-    df_ft = read_ft_bronze_data(storage_ft, ft_prefix)
-    
-    if progress_callback:
-        progress_callback("normalizing_ft", f"Normalisation FT ({len(df_ft):,} offres)...")
-    df_ft = normalize_ft_data(df_ft)
 
     # Read Wttj Silver parquet file to a DataFrame
     # Normalize WTTJ data to match Silver_Datamodel structure
@@ -870,22 +654,33 @@ def merge_ft_wttj_datasets(
         progress_callback("normalizing_wttj", f"Normalisation WTTJ ({len(df_wttj):,} offres)...")
     df_wttj = normalize_wttj_data(df_wttj)
 
+    # Read FT Bronze JSONL files to a DataFrame with parallelization
+    # and normalization to match Silver_Datamodel structure
+    if progress_callback:
+        progress_callback("reading_ft", "Lecture des données France Travail...")
+    df_ft = read_ft_bronze_data(storage_ft, ft_prefix)
+    
+    if progress_callback:
+        progress_callback("normalizing_ft", f"Normalisation FT ({len(df_ft):,} offres)...")
+    df_ft = normalize_ft_data(df_ft)
+
+
     # Merge and deduplicate datasets
     if progress_callback:
         progress_callback("merging", "Fusion et déduplication...")
     df_merged = merge_and_deduplicate(df_ft, df_wttj)
-    
-    # Statistics
-    if progress_callback:
-        progress_callback("computing_stats", "Calcul des statistiques...")
-    print_statistics(df_merged)
     
     # Save merged dataset 
     if progress_callback:
         progress_callback("saving", f"Sauvegarde du dataset ({len(df_merged):,} offres)...")
     storage_output = get_storage_from_env("silver", "merged")
 
-    output_key = save_dataset(df_merged, storage_output, output_format)
+    output_key = save_pd_to_storage_with_format(df_merged, storage_output, output_format)
+
+    # Statistics
+    if progress_callback:
+        progress_callback("computing_stats", "Calcul des statistiques...")
+    merge_utils.print_statistics(df_merged)   
     
     end_time = time.perf_counter()
     elapsed_s = end_time - start_time
@@ -923,10 +718,13 @@ def main():
     parser.add_argument("--format", choices=["parquet", "jsonl", "csv"], default="parquet", help="Output format")
     
     args = parser.parse_args()
-    
+
+    wttj_prefix=args.wttj_prefix
+    #wttj_prefix= "dt=2026-02-28/segment=jobs"
+
     merge_ft_wttj_datasets(
         ft_prefix=args.ft_prefix,
-        wttj_prefix=args.wttj_prefix,
+        wttj_prefix=wttj_prefix,
         output_prefix=args.output_prefix,
         output_format=args.format,
     )
