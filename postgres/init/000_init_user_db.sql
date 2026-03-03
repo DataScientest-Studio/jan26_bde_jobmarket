@@ -12,8 +12,8 @@
 -- Vérification : on est bien dans la bonne base
 DO $$
 BEGIN
-  IF current_database() != 'jobmarket' THEN
-    RAISE EXCEPTION 'Ce script doit s''exécuter dans la base jobmarket, actuellement dans: %', current_database();
+  IF current_database() != 'jobdb' THEN
+    RAISE EXCEPTION 'Ce script doit s''exécuter dans la base jobdb, actuellement dans: %', current_database();
   END IF;
   
   -- Vérifier que l'utilisateur jobuser existe (créé par Docker)
@@ -27,7 +27,7 @@ $$;
 
 -- Accorder les permissions minimales nécessaires
 -- 1. Connexion à la base de données
-GRANT CONNECT ON DATABASE jobmarket TO jobuser;
+GRANT CONNECT ON DATABASE jobdb TO jobuser;
 
 -- 2. Droits sur le schéma public (pour les scripts 001, 002 et l'applicatif)
 GRANT USAGE ON SCHEMA public TO jobuser;           -- Utiliser le schéma
