@@ -1193,6 +1193,9 @@ env_job_market\Scripts\Activate.ps1  # Windows
 # 3. Instalation des dépendances
 pip install -r requirements.txt
 
+# 3.2 Mise en place de la configuration pgadmin
+copier et renommer le fichier /pgadmin/servers.json.example en /pgadmin/servers.json en indiquant le mot de passer défini pour POSTGRES_PASSWORD dans le .env
+
 # 4. Lancement des servcices Docker 
 docker-compose up -d               # Postgres, MinIO, Grafana, API
 En cas de modifications des variables dans le env il faut recréer le container:
