@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "JobMarket Local",
+      "Group": "JobMarket",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "jobdb",
+      "Username": "jobuser",
+      "Password": "CHANGEME",
+      "SSLMode": "prefer",
+      "Shared": true
+    }
+  }
+}
