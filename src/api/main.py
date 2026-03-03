@@ -44,7 +44,7 @@ from src.ingest.bronze.ingest_wttj_jobs import ingest_welcome_to_the_jungle
 from src.ingest.silver.merge_ft_wttj_datasets import merge_ft_wttj_datasets
 from src.observability.job_store import JobStore
 from src.utils.log_to_db import log_to_db
-from src.utils.time_helpers import format_eta
+from src.utils.time_helpers import format_eta, utc_run_id
 
 from src.api.models import (
     PredictRequest,
@@ -1060,7 +1060,7 @@ dans le système de storage configuré (local ou S3/MinIO).
     
     if background:
         # Générer un task_id unique
-        task_id = f"rome-metiers-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+        task_id = utc_run_id()
         
         # Enregistrer la tâche
         ACTIVE_TASKS[task_id] = {
@@ -1355,7 +1355,7 @@ dans le système de storage configuré (local ou S3/MinIO).
     
     if background:
         # Générer un task_id unique
-        task_id = f"ft-offers-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+        task_id = utc_run_id()
         
         # Enregistrer la tâche
         ACTIVE_TASKS[task_id] = {
@@ -1497,7 +1497,7 @@ des pages jobs et companies pour stockage en bronze.
     
     if background:
         # Générer un task_id unique
-        task_id = f"wttj-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+        task_id = utc_run_id()
         
         # Enregistrer la tâche
         ACTIVE_TASKS[task_id] = {
@@ -1648,7 +1648,7 @@ le modèle Silver_Datamodel, fusionne et déduplique pour créer un dataset unif
     
     if background:
         # Générer un task_id unique
-        task_id = f"merge-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+        task_id = utc_run_id()
         
         # Enregistrer la tâche
         ACTIVE_TASKS[task_id] = {
