@@ -461,6 +461,19 @@ log_to_db(
 - `france-travail-offers-logs.json` : Logs offres FT
 - `wttj-ingestion-logs.json` : Logs offres WTTJ
 
+**Docker reconstruction du volume**:
+Supprime la base et relance les scripts d'initialisation (/postgres/init)
+```python
+docker compose down
+
+# Syntaxe volume name : nomProjet_nomVolume
+# Suppression du volume de persistance de données
+docker volume rm jan26_bde_jobmarket_jobdb-data
+
+docker compose up -d postgres
+docker logs jobmarket-postgres
+```
+
 ---
 
 ### 7. Job Store (`job_runs` table)
@@ -577,7 +590,6 @@ WTTJ_STORE_HTML=always              # never | on_error | always
 # Debug
 WTTJ_MAX_JOBS=15                    # 0 = illimité
 WTTJ_MAX_COMPANIES=0                # 0 = illimité
-WTTJ_LOG_EACH_XX_URL=50             # Verbosité
 ```
 
 ### Section 3: Storage Backend
@@ -1182,6 +1194,9 @@ pip install -r requirements.txt
 
 # 4. Lancement des servcices Docker 
 docker-compose up -d               # Postgres, MinIO, Grafana, API
+En cas de modifications des variables dans le env il faut recréer le container:
+
+docker-compose up -d --force-recreate jobmarket-api
 
 # 5. Verifier le bon lancement des services
 docker-compose ps                 
