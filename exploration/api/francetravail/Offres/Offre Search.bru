@@ -1,0 +1,34 @@
+meta {
+  name: Offre Search
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?range=0-10
+  body: none
+  auth: none
+}
+
+params:query {
+  range: 0-10
+}
+
+headers {
+  Authorization: Bearer {{ACCESS_TOKEN}}
+  Accept: application/json
+}
+
+docs {
+  https://francetravail.io/produits-partages/catalogue/offres-emploi/documentation#/api-reference/operations/recupererListeOffre
+  
+  Threshold à prendre en compte : 10 appels / s
+  
+  range  : pour indiquer le range de récupération, limité à 150 et débute à 0. 
+  
+  Format : p-d, où :
+  
+  p est l'index (débutant à 0) du premier élément demandé ne devant pas dépasser 3000
+  d est l'index de dernier élément demandé ne devant pas dépasser 3149
+  
+}

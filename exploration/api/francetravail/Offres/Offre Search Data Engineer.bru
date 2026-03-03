@@ -1,17 +1,18 @@
 meta {
-  name: Offre Search
+  name: Offre Search Data Engineer
   type: http
-  seq: 1
+  seq: 2
 }
 
 get {
-  url: https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?range=2-2
+  url: https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?range=0-10&codeROME=M1811
   body: none
   auth: none
 }
 
 params:query {
-  range: 2-2
+  range: 0-10
+  codeROME: M1811
 }
 
 headers {
