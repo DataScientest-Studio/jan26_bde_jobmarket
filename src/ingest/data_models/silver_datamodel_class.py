@@ -6,25 +6,35 @@ import datetime
 class Silver_Datamodel:
     def __init__(
             self, 
-            source: str,
             id: str,
+            source: str,
+            url : str,
             title : str, 
             description : str,
-            profile : str,          
-            rome_code : str,
-            rome_label : str,
-            contract_type : str,
-            experience_level : str,
-            salary_min: float,
-            salary_max: float,
-            location_city: str,
-            location_department: str,
             published_at : datetime,
             updated_at : datetime,
-            url : str,
-            existing_skills : list,
-            company_name : str 
-            
+            status : str,
+            rome_code : str,
+            rome_label : str,
+            title_description : str,
+            contract_type : str,
+            worktime : str,
+            experience_level : str,
+            experience_description : str,            
+            naf_code : str,
+            job_city: str,
+            job_postal_code: str,
+            company_name : str,             
+            company_city : str,            
+            company_postal_code : str,
+            company_url : str,
+            salary_min: float,
+            salary_max: float,
+            profile : str,          
+            location_department: str,
+            skills : list,
+            salary_periodicity: str,
+            unpublished_at : datetime = None            
  ):
 
         self.source = source
@@ -34,17 +44,28 @@ class Silver_Datamodel:
         self.profile = profile  
         self.rome_code = rome_code
         self.rome_label = rome_label
+        self.title_description = title_description
         self.contract_type = contract_type
         self.experience_level = experience_level
         self.salary_min = salary_min
         self.salary_max = salary_max
-        self.location_city = location_city
+        self.job_city = job_city
+        self.job_postal_code = job_postal_code
         self.location_department = location_department
         self.published_at = published_at
         self.updated_at = updated_at
+        self.unpublished_at = unpublished_at
         self.url = url
-        self.existing_skills = existing_skills
+        self.skills = skills
         self.company_name = company_name
+        self.status = status
+        self.worktime = worktime
+        self.experience_description = experience_description
+        self.naf_code = naf_code
+        self.company_city = company_city
+        self.company_postal_code = company_postal_code
+        self.company_url = company_url
+        self.salary_periodicity = salary_periodicity
         
     def __str__(self) -> str:
         """Surcharge affichage print()"""
@@ -65,30 +86,41 @@ class Silver_Datamodel:
         published_at : {self.published_at}
         updated_at : {self.updated_at}
         url : {self.url}
-        existing_skills : {self.existing_skills}
+        skills : {self.skills}
         company_name : {self.company_name}"""
     
     def to_dict(self):
         """Convertit l'objet en dictionnaire pour DataFrame"""
         return {
-            "source": self.source,
             "id": self.id,
-            "intitule": self.title,  # Mapping title → intitule
+            "source": self.source,
+            "url": self.url,
+            "title": self.title,  
             "description": self.description,
-            "profile": self.profile,
-            "rome_code": self.rome_code,
-            "rome_label": self.rome_label,
-            "contract_type": self.contract_type,
-            "experience_level": self.experience_level,
-            "salary_min": self.salary_min,
-            "salary_max": self.salary_max,
-            "location_city": self.location_city,
-            "location_department": self.location_department,
             "published_at": self.published_at,
             "updated_at": self.updated_at,
-            "url": self.url,
-            "existing_skills": self.existing_skills,
-            "company_name": self.company_name
+            "unpublished_at": self.unpublished_at,
+            "status": self.status,
+            "rome_code": self.rome_code,
+            "rome_label": self.rome_label,
+            "title_description": self.title_description,
+            "contract_type": self.contract_type,
+            "worktime": self.worktime,
+            "experience_level": self.experience_level,
+            "experience_description": self.experience_description,
+            "naf_code": self.naf_code,
+            "job_city": self.job_city,
+            "job_postal_code": self.job_postal_code,
+            "company_name": self.company_name,
+            "company_city": self.company_city,
+            "company_postal_code": self.company_postal_code,
+            "company_url": self.company_url,
+            "salary_min": self.salary_min,
+            "salary_max": self.salary_max,
+            "profile": self.profile,
+            "location_department": self.location_department,
+            "skills": self.skills,
+            "salary_periodicity": self.salary_periodicity
         }
     
     @classmethod
@@ -99,10 +131,18 @@ class Silver_Datamodel:
         """
         # Create a dummy instance to extract column names from to_dict()
         dummy = cls(
-            source="", id="", title="", description="", profile="",
-            rome_code="", rome_label="", contract_type="", experience_level="",
-            salary_min=None, salary_max=None, location_city="", location_department="",
-            published_at=None, updated_at=None, url="", existing_skills=[], company_name=""
+            id="", source="", url="",  title="", description="",
+            published_at=None, updated_at=None, unpublished_at=None,
+            status="", rome_code="", rome_label="", title_description="",
+            contract_type="", worktime="", 
+            experience_level="", experience_description="", naf_code="",
+            job_city="", job_postal_code="",
+            company_name="", company_city="", company_postal_code="", company_url="",
+            salary_min=0.0, salary_max=0.0, 
+            profile="",
+            location_department="",
+            skills=[], 
+            salary_periodicity=""
         )
         return list(dummy.to_dict().keys())
 
@@ -169,6 +209,7 @@ class silver_wttj:
         self.offices = offices
         self.sectors = sectors
         self.profession = profession
+
 
     def __str__(self) -> str:
         """Surcharge affichage print()"""
