@@ -37,25 +37,25 @@
 ## Architecture générale
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                     CLIENTS / FRONTEND                          │
-└────────────────────┬───────────────────────────────────────────┘
-                     │
-        ┌────────────┼────────────┐
-        │            │            │
-    ┌───▼──┐    ┌────▼────┐  ┌───▼──────┐
-    │ API  │    │ Jupyter │  │ Grafana  │
-    │:8000 │    │ :8888   │  │ :3000    │
-    └───┬──┘    └────┬────┘  └───┬──────┘
+┌──────────────────────────────────────────────────┐
+│             CLIENTS / FRONTEND                   │
+└─────────────────────┬────────────────────────────┘
+                      │
+        ┌─────────────┼───────────┐
+        │             │           │
+    ┌───▼──┐     ┌────▼────┐   ┌───▼──────┐
+    │ API  │     │ Jupyter │   │ Grafana  │
+    │:8000 │     │ :8888   │   │ :3000    │
+    └───┬──┘     └────┬────┘   └───┬──────┘
         │             │           │
         └─────────────┼───────────┘
                       │
-        ┌─────────────┼
-        │             │
-    ┌───▼────────┐ ┌─▼────────┐ 
-    │ PostgreSQL │ │  MinIO   │ 
-    │ :5432      │ │  :9000   │ 
-    └────────────┘ └──────────┘ 
+        ┌─────────────┼───┐
+        │                 │
+    ┌───▼────────┐   ┌────▼─────┐ 
+    │ PostgreSQL │   │  MinIO   │ 
+    │ :5432      │   │  :9000   │ 
+    └────────────┘   └──────────┘ 
 ```
 
 ### Composants principaux
@@ -686,6 +686,7 @@ GF_DATE_FORMATS_DEFAULT_TIMEZONE=browser   # Fuseau client (pas UTC)
 POSTGRES_DB=jobdb
 POSTGRES_USER=jobuser
 POSTGRES_PASSWORD=jobpass           # ⚠️ À changer en production !
+JOBSTORE_DSN=postgresql://jobuser:jobpass@localhost:5432/jobdb
 ```
 
 ### Section 9: pgAdmin Configuration (optionnel)
@@ -928,7 +929,7 @@ Raisons :
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  POST /ingest/france-travail-offers (avec task_id)         │
+│  POST /ingest/france-travail-offers (avec task_id)          │
 └────────────────┬────────────────────────────────────────────┘
                  │
                  ▼
@@ -939,31 +940,31 @@ Raisons :
                  │
                  ▼
     ┌─────────────────────────────┐
-    │ Get ROME codes             │  → 532 codes
-    │ (deduplicated)             │
+    │ Get ROME codes              │  → 532 codes
+    │ (deduplicated)              │
     └────────────┬────────────────┘
                  │
                  ▼
-    ┌────────────────────────────────────────┐
+    ┌───────────────────────────────────────┐
     │ For each ROME code:                   │
     │ - Build time windows (7d intervals)   │
     │ - Query API : /offres/search          │
     │   + rate limit: 10 req/sec            │
-    │ - If result > 3150: Binary split       │
+    │ - If result > 3150: Binary split      │
     │ - Write segments to JSONL             │
     │ - Update progress_callback            │
-    └────────────┬────────────────────────────┘
+    └────────────┬──────────────────────────┘
                  │
                  ▼
 ┌──────────────────────────────────────────┐
 │ Storage: S3/MinIO                        │
 │ Path: france_travail/bronze/offers/      │
-│       dt=2026-02-26/                    │
+│       dt=2026-02-26/                     │
 │       run_id=20260226T173600Z/           │
 │       code_rome=C1504/                   │
 │       segment=global/                    │
 │       part-000001.jsonl                  │
-└───────┬────────────────────────────────┘
+└───────┬──────────────────────────────────┘
         │
         ▼
 ┌─────────────────────────────────────────────┐
@@ -979,7 +980,7 @@ Raisons :
 │ PostgreSQL - ingestion_logs table           │
 │ - endpoint: france_travail_offers           │
 │ - level: INFO/ERROR                         │
-│ - message: "✅ 15000 offres importées"     │
+│ - message: "✅ 15000 offres importées"      │
 │ - duration_sec: 2370                        │
 │ - records_count: 15000                      │
 │ - error_count: 2                            │
@@ -989,9 +990,9 @@ Raisons :
 ### Pipeline 2 : Ingestion Welcome to the Jungle
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  POST /ingest/welcome-to-jungle (mode=new|resume|incremental)
-└────────────────┬────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│  POST /ingest/welcome-to-jungle (mode=new|resume|incremental) |
+└────────────────┬──────────────────────────────────────────────┘
                  │
                  ▼
     ┌──────────────────────────┐
@@ -1005,34 +1006,34 @@ Raisons :
     │ Filter sitemaps:                     │
     │ - jobs_en, jobs_fr                   │
     │ - companies_*                        │
-    └────────────┬───────────────────────┘
+    └────────────┬─────────────────────────┘
                  │
                  ▼
     ┌────────────────────────────────────┐
     │ Extraire URLs from filtered maps   │
     │ (e.g. 100k URLs de jobs)           │
-    └────────────┬──────────────────────┘
+    └────────────┬───────────────────────┘
                  │
                  ▼
     ┌──────────────────────────────────────────┐
     │ Parallel crawl (10 workers):             │
-    │ - Rate limit: 2 req/sec (WTTJ_RPS)     │
+    │ - Rate limit: 2 req/sec (WTTJ_RPS)       │
     │ - Retry: exponential backoff (5 try)     │
-    │ - Extract window.__INITIAL_DATA__   │
+    │ - Extract window.__INITIAL_DATA__        │
     │ - HTML storage: always/on_error/never    │
-    │ - Flush JSONL every 10 records      │
-    └────────────┬──────────────────────────────┘
+    │ - Flush JSONL every 10 records           │
+    └────────────┬─────────────────────────────┘
                  │
                  ▼
-┌─────────────────────────────────┐
-│ Storage: S3/MinIO              │
-│ Path: welcometothejungle/       │
-│       bronze/jobs/              │
-│       dt=2026-02-26/           │
-│       part-001.jsonl           │
-└────────┬──────────────────────┘
-         │
-         ▼
+    ┌────────────────────────────────┐
+    │ Storage: S3/MinIO              │
+    │ Path: welcometothejungle/      │
+    │       bronze/jobs/             │
+    │       dt=2026-02-26/           │
+    │       part-001.jsonl           │
+    └────────────┬───────────────────┘
+                 │
+                 ▼
 ┌…(similarly job_runs + ingestion_logs)…┐
 ```
 
@@ -1041,61 +1042,61 @@ Raisons :
 ```
 ┌──────────────────────────────────────┐
 │ POST /data/merge-datasets            │
-└────────────┬──────────────────────────┘
+└────────────┬─────────────────────────┘
              │
              ▼
-    ┌──────────────────────────────────┐
+    ┌─────────────────────────────────┐
     │ Load Bronze FT (JSONL)          │
     │ Auto-detect or manual prefix    │
-    │ FT_BRONZE_PREFIX               │
-    │ → pandas DataFrame (X records) │
-    └────────────┬───────────────────┘
+    │ FT_BRONZE_PREFIX                │
+    │ → pandas DataFrame (X records)  │
+    └────────────┬────────────────────┘
                  │
                  ▼
     ┌──────────────────────────────────┐
     │ Load Silver WTTJ (Parquet)       │
-    │ Auto-detect or manual prefix    │
-    │ WTTJ_SILVER_PREFIX              │
-    │ → pandas DataFrame (Y records) │
-    └────────────┬───────────────────┘
+    │ Auto-detect or manual prefix     │
+    │ WTTJ_SILVER_PREFIX               │
+    │ → pandas DataFrame (Y records)   │
+    └────────────┬─────────────────────┘
                  │
                  ▼
-    ┌──────────────────────────────────┐
+    ┌─────────────────────────────────┐
     │ Harmonize schemas:              │
-    │ - Normalize column names         │
+    │ - Normalize column names        │
     │ - Map salary ranges             │
-    │ - Location standardization       │
-    └────────────┬───────────────────┘
+    │ - Location standardization      │
+    └────────────┬────────────────────┘
                  │
                  ▼
-    ┌────────────────────────────────────┐
-    │ Concatenate & deduplicate        │
-    │ Combined: X + Y records          │
+    ┌───────────────────────────────────┐
+    │ Concatenate & deduplicate         │
+    │ Combined: X + Y records           │
     └────────────┬──────────────────────┘
                  │
                  ▼
-    ┌──────────────────────────────────────────┐
-    │ Predict ROME codes (via /predict API)  │
+    ┌─────────────────────────────────────────┐
+    │ Predict ROME codes (via /predict API)   │
     │ For each record:                        │
     │ - Build payload (title+desc)            │
     │ - POST /predict                         │
     │ - Extract rome_code + confidence        │
-    └────────────┬───────────────────────────┘
+    └────────────┬────────────────────────────┘
                  │
                  ▼
 ┌──────────────────────────────────────┐
-│ Storage: S3/MinIO (Parquet)         │
-│ Path: gold/datasets/                │
-│       ft_wttj_merged.parquet        │
+│ Storage: S3/MinIO (Parquet)          │
+│ Path: gold/datasets/                 │
+│       ft_wttj_merged.parquet         │
 │                                      │
 │ Columns:                             │
 │ - id, title, description             │
-│ - source (ft|wttj)                  │
+│ - source (ft|wttj)                   │
 │ - rome_code, rome_label              │
 │ - rome_confidence                    │
 │ - location, salary, url              │
 │ - ingestion_date, run_id             │
-│ - skills, seniority, etc (metadata) │
+│ - skills, seniority, etc (metadata)  │
 └──────┬───────────────────────────────┘
        │
        ▼
@@ -1144,19 +1145,19 @@ Raisons :
     └────────────┬─────────────────────┘
                  │
                  ▼
-┌────────────────────────────────────────┐
-│ Response JSON                          │
-│ {                                      │
+┌───────────────────────────────────────┐
+│ Response JSON                         │
+│ {                                     │
 │   "code_rome": "M1602",               │
 │   "label": "Analyse de données",      │
-│   "confidence": 0.87,                  │
-│   "top_k": [                           │
+│   "confidence": 0.87,                 │
+│   "top_k": [                          │
 │     {"code": "M1602", "score": 0.87}, │
 │     {"code": "M1603", "score": 0.78}, │
-│     ...                                │
-│   ]                                    │
-│ }                                      │
-└────────────────────────────────────────┘
+│     ...                               │
+│   ]                                   │
+│ }                                     │
+└───────────────────────────────────────┘
 ```
 
 ---
@@ -1243,6 +1244,7 @@ curl -X POST "http://localhost:8000/ingest/france-travail-offers?background=true
 # - Puis dans dashboard
 ```
 
+
 ### Production Deployment
 
 #### 1. Sécurité
@@ -1262,7 +1264,7 @@ POSTGRES_PASSWORD=<strong_password>
 ┌─────────────────────────────────────────────────────────────────┐
 │                   CLIENTS / USERS                               │
 │   - API users (prédiction)                                      │
-│   - Data engineers (Grafana)                                     │
+│   - Data engineers (Grafana)                                    │
 │   - Data engineers (Jupyter)                                    │
 └────────────┬────────────────────────────────────┬───────────────┘
              │                                    │
@@ -1275,7 +1277,7 @@ POSTGRES_PASSWORD=<strong_password>
              ▼                                   ▼
    ┌─────────────────────┐         ┌──────────────────────┐
    │   INGESTION LAYER   │         │   STORAGE LAYER      │
-   │ ─────────────────── │         │ ────────────────────  │
+   │ ─────────────────── │         │ ──────────────────── │
    │ • France Travail    │────┐    │ • PostgreSQL         │
    │ • WTTJ              │    │    │   - job_runs         │
    │ • ROME Codes        │    │    │   - ingestion_logs   │
@@ -1300,8 +1302,22 @@ POSTGRES_PASSWORD=<strong_password>
 - [ ] Lancer test ingestion (ROME codes)
 - [ ] Vérifier logs
 
- dans Grafana
+### dans Grafana
 - [ ] Tester prédiction `/predict`
 - [ ] Éxecuter ingestion FT/WTTJ (petit test)
 - [ ] Fusion datasets
 - [ ] Production: changer passwords, configurer backup
+
+### dans PgAdmin
+Pour vérifier si la connexion à la base postgres est OK
+En cas de non connexion : cela apparait dans les logs
+
+- [ ] Aller sur pgadmin pour créer une connection via "Query Tool Workspace"
+- [ ] Créer une connexion au serveur : 
+        - Host name/address = postgres
+        - Port = 5432
+        - Maintenance database = jobdb
+        - Username = jobuser (cf infos de connexion Postgres)
+        - Password = jobpass
+- [ ] Dans le panneau "Query Tool Workspace", dans la zone de requête SQL :
+        - GRANT ALL PRIVILEGES ON DATABASE jobdb TO jobuser 
