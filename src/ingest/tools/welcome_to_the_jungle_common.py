@@ -380,13 +380,10 @@ def ingest_segment(
     # Url to process (not skipped) count
     total_urls = len(urls_todo)
 
-    # Progress log frequency based on part_size.
-    # - If part_size is small, keep that cadence.
-    # - If part_size is large, ensure at least ~10 progress logs over the segment.
-    # Always keep a minimum interval of 1.
-    min_logs_target = 10
-    interval_for_min_logs = max(1, (total_urls + min_logs_target - 1) // min_logs_target)
-    progress_log_every = max(1, min(part_size, interval_for_min_logs))
+    # Progress log frequency based on total URLs.
+    # We want frequent feedback, so log every 100 URLs or 1% of total (whichever is smaller).
+    # This ensures visibility even for large ingestion jobs.
+    progress_log_every = max(1, min(100, total_urls // 100 if total_urls > 0 else 1))
     
     # We define a prefix for the raw data files in storage based on the date, run ID, and segment.
     raw_prefix = f"dt={dt}/run_id={run_id}/segment={segment}_raw/"
@@ -509,13 +506,19 @@ def ingest_segment(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         # We create a dictionary mapping each Future to its corresponding URL, so that when a Future completes, 
         # we can easily identify which URL it corresponds to.
+        logger.info(f"⏳ Submitting {len(urls_todo)} URLs to {workers} workers...")
         futures = {pool.submit(fetch_page, session, limiter, url): url for url in urls_todo}
+        logger.info(f"✅ All {len(futures)} tasks submitted. Starting fetch loop with progress_log_every={progress_log_every}")
 
         # We use as_completed to iterate over the Futures as they complete, regardless of the order they were submitted.
         for fut in as_completed(futures):
             res = fut.result()
             fetched_at = utc_now_iso()
             processed += 1
+            
+            # Log the first processing to confirm workers are active
+            if processed == 1:
+                logger.info(f"🚀 First URL processed successfully. Workers are active. Rate limiter at {limiter.rate} req/s")
 
             initial_data = None
             job_data = None
