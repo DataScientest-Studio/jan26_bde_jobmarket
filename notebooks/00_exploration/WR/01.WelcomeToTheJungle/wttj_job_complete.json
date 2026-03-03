@@ -1,0 +1,1078 @@
+{
+  "mutations": [],
+  "queries": [
+    {
+      "state": {
+        "data": {
+          "application_fields": [
+            {
+              "id": "d922d534-0c38-4955-bdca-c3de0062008e",
+              "mode": "mandatory",
+              "name": "cover_letter"
+            },
+            {
+              "id": "553597c6-752a-48a1-be66-b6f57acc880b",
+              "mode": "mandatory",
+              "name": "resume"
+            },
+            {
+              "id": "7d7fac81-9121-4eee-8d64-0a68b02f3289",
+              "mode": "disabled",
+              "name": "portfolio"
+            },
+            {
+              "id": "ef2555df-80b4-466a-b7dc-a1176a6221a4",
+              "mode": "optional",
+              "name": "picture"
+            },
+            {
+              "id": "89cf6eaa-9e2f-4a72-a301-6ac9b436f09d",
+              "mode": "optional",
+              "name": "media_website"
+            },
+            {
+              "id": "746a2d9b-1aab-4063-b32e-46b7692faa7e",
+              "mode": "optional",
+              "name": "media_linkedin"
+            },
+            {
+              "id": "e9971b39-b39c-48ce-a6dd-6ea4bdf6efa6",
+              "mode": "optional",
+              "name": "media_twitter"
+            },
+            {
+              "id": "9b7c691d-afb8-4d60-87f1-726586420195",
+              "mode": "disabled",
+              "name": "media_github"
+            },
+            {
+              "id": "23ce7762-359e-49eb-9dd8-53cf7a9e644f",
+              "mode": "disabled",
+              "name": "media_stackoverflow"
+            },
+            {
+              "id": "aba76e3e-b250-4a68-a05c-93e2eb20e126",
+              "mode": "disabled",
+              "name": "media_behance"
+            },
+            {
+              "id": "33110747-4e21-4da7-95ee-221190eebe4b",
+              "mode": "disabled",
+              "name": "media_dribbble"
+            },
+            {
+              "id": "a1db6463-3c8b-4078-a988-8da6b6a8ddd9",
+              "mode": "disabled",
+              "name": "media_xing"
+            }
+          ],
+          "salary_period": null,
+          "updated_at": "2026-02-12T23:16:21.529380Z",
+          "slug": "caissiere-hote-de-caisse-h-f_carnoules",
+          "salary_min": null,
+          "featured_page": {
+            "type": "culture",
+            "slug": "/culture"
+          },
+          "wttj_reference": "2cde9a02-cafa-4cec-b45f-19b89091a77d",
+          "apply_url": "https://jobs.smartrecruiters.com/GroupementMousquetaires/744000086736850-caissiere-hote-de-caisse-h-f-?sid=9fa97eed-f39f-400a-9fc4-128b3ed356c4",
+          "is_default": false,
+          "archived_at": "2025-09-04T10:57:31Z",
+          "salary_currency": null,
+          "reference": "GLM_26QVXRG",
+          "urls": [
+            {
+              "kind": "canonical",
+              "href": "https://www.welcometothejungle.com/fr/companies/groupement-les-mousquetaires/jobs/caissiere-hote-de-caisse-h-f_carnoules",
+              "language": "fr"
+            },
+            {
+              "kind": "alternate",
+              "href": "https://www.welcometothejungle.com/fr/companies/groupement-les-mousquetaires/jobs/caissiere-hote-de-caisse-h-f_carnoules",
+              "language": "fr"
+            }
+          ],
+          "salary_max": null,
+          "contract_duration_max": null,
+          "offices": [
+            {
+              "address": "Carnoules, Provence-Alpes-Cote d'Azur, France",
+              "local_address": "Carnoules, Provence-Alpes-CÃ´te d'Azur, France",
+              "city": "Carnoules",
+              "latitude": 43.30248,
+              "longitude": 6.1891,
+              "country_code": "FR",
+              "district": "Var",
+              "zip_code": "83660",
+              "local_district": "Var",
+              "local_city": "Carnoules"
+            }
+          ],
+          "tools": [],
+          "team": null,
+          "profession": {
+            "name": {
+              "cs": "MaloobchodnÃ­ prodej",
+              "en": "Retail Sales",
+              "es": "Ventas al por menor",
+              "fr": "Ventes au dÃ©tail",
+              "sk": "MaloobchodnÃ½ predaj"
+            },
+            "category": {
+              "cs": "Prodej a zÃ¡kaznickÃ½ servis",
+              "en": "Sales & Customer Service",
+              "es": "Ventas y atenciÃ³n al cliente",
+              "fr": "Vente et service Ã  la clientÃ¨le",
+              "sk": "Predaj a sluÅ¾by zÃ¡kaznÃ­kom"
+            },
+            "sub_category_reference": "retail-sales-0YTk3",
+            "sub_category_name": {
+              "cs": "MaloobchodnÃ­ prodej",
+              "en": "Retail Sales",
+              "es": "Ventas al por menor",
+              "fr": "Ventes au dÃ©tail",
+              "sk": "MaloobchodnÃ½ predaj"
+            },
+            "category_reference": "sales-customer-service-5MzIw",
+            "category_name": {
+              "cs": "Prodej a zÃ¡kaznickÃ½ servis",
+              "en": "Sales & Customer Service",
+              "es": "Ventas y atenciÃ³n al cliente",
+              "fr": "Vente et service Ã  la clientÃ¨le",
+              "sk": "Predaj a sluÅ¾by zÃ¡kaznÃ­kom"
+            }
+          },
+          "cta_content": {
+            "links": [
+              "/lesplus",
+              "/culture",
+              "/team",
+              "/jobs",
+              "/",
+              "/meetings"
+            ],
+            "contents": [
+              {
+                "id": 1194809,
+                "position": 1,
+                "kind": "video",
+                "properties": {
+                  "name": "Rencontrez Laura, Cheffe de projet performance industrielle",
+                  "title": "Rencontrez Laura, Cheffe de projet performance industrielle",
+                  "reference": "2N6PJXM",
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/Hr0mdBZewF9bOBxEiiuVzrM_SA2slDo2rEA24-BKBBI/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTI1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0Q5bUdlemwuanBn"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/dPAdwREFZs1F3jo33d-cAl7Tx4_CRG4VSL4bFlwXoyg/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTI1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0Q5bUdlemwuanBn",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/EAwyJHYRLQGpET9ryfzqz-FUpXvahcL8KS7aup3DPo8/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTI1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0Q5bUdlemwuanBn"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/of0WP3E77SPEmzR9Cf2wp67moKVxbrEFzYfPGqkZG7A/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTI1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0Q5bUdlemwuanBn"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/-FaeB79GE0-PiSRDkho5rb5yMni0NLa0x3ryU9u45LA/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTI1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0Q5bUdlemwuanBn"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/A4s0ManbkLwxLrgQ5dBTzwSSIycr7bPv2dI-ElhroPo/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTI1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0Q5bUdlemwuanBn"
+                    }
+                  },
+                  "source": "youtube",
+                  "organization": null,
+                  "subtitle": null,
+                  "external_reference": "4FINwYqV4lM",
+                  "display": "modal"
+                }
+              },
+              {
+                "id": 1194762,
+                "position": 1,
+                "kind": "image",
+                "properties": {
+                  "title": null,
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/wWG2WEyiZhLS9Z_6LLwHcpQmr0Wmrv4WhfVPwv6AgP0/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzY5NzEvMTcxMjY0LzZhN2Y2OWJmLWFjYjAtNDhlNi04YzAxLWIzZDVhZDUyZGNhZS5qcGc"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/EqLzOHWiPJHI_D_2AqKz_R0cOws-rCpmxwctD5qJbmk/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzY5NzEvMTcxMjY0LzZhN2Y2OWJmLWFjYjAtNDhlNi04YzAxLWIzZDVhZDUyZGNhZS5qcGc",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/C4vE-A3MZcYqijQnv8acNUETF7DRJFcNRC2QY-T3oeg/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzY5NzEvMTcxMjY0LzZhN2Y2OWJmLWFjYjAtNDhlNi04YzAxLWIzZDVhZDUyZGNhZS5qcGc"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/hV0U2YuAR2hZmBA-1cxsoUvWBPKXjDMUaIgb4TWGspQ/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzY5NzEvMTcxMjY0LzZhN2Y2OWJmLWFjYjAtNDhlNi04YzAxLWIzZDVhZDUyZGNhZS5qcGc"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/yDW6X8FLWg6otRDHzdzDXtjxbck65_eLYXjii_JkIlU/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzY5NzEvMTcxMjY0LzZhN2Y2OWJmLWFjYjAtNDhlNi04YzAxLWIzZDVhZDUyZGNhZS5qcGc"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/58RfY3bjv3jyBw7xa2PaQQ0JUOn_TAkysakME5Jn1ug/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzY5NzEvMTcxMjY0LzZhN2Y2OWJmLWFjYjAtNDhlNi04YzAxLWIzZDVhZDUyZGNhZS5qcGc"
+                    }
+                  },
+                  "subtitle": null
+                }
+              },
+              {
+                "id": 1194808,
+                "position": 1,
+                "kind": "video",
+                "properties": {
+                  "name": "Rencontrez CeÌcile, Responsable CRM",
+                  "title": "Rencontrez CeÌcile, Responsable CRM",
+                  "reference": "J166wVR",
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/NIpYcladVR1u_bxG50PBLs1Vh43W9xCudCz8Dt-v8Os/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTYyLzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvXzhwREdWem0uanBn"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/G8WshskXpG7lSlhJsP9XKZcfcIK9olNfzQK_r99KIao/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTYyLzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvXzhwREdWem0uanBn",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/L29Vvidr9YpJTU_v4aYWZVWVMLB57q4HfxSaMLwb0fI/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTYyLzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvXzhwREdWem0uanBn"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/uwZitiNId0VNexPerd9reIpsAoAP2NRnHtCWaWF0Af0/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTYyLzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvXzhwREdWem0uanBn"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/MhBwdyOaDsHwOBASHYTIJDGSoCYLHi61sOEO8jrLkl0/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTYyLzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvXzhwREdWem0uanBn"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/ZFx8OKBCx7OB-VsJM0aXMmDwo9dwZ9iJWqwrKadj29g/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTYyLzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvXzhwREdWem0uanBn"
+                    }
+                  },
+                  "source": "youtube",
+                  "organization": null,
+                  "subtitle": null,
+                  "external_reference": "eG_BM7eD14k",
+                  "display": "modal"
+                }
+              },
+              {
+                "id": 1194758,
+                "position": 1,
+                "kind": "image",
+                "properties": {
+                  "title": null,
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/UCNZRX_6ffrF60asnS0I5v2MW2bQJNfMGrdmBUe6ImA/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NzMvMTc2NDYwLzBhOTNkNjY5LTI3N2UtNGNjNS05ODBmLTJkMzE3YWFkOWE1YS5qcGc"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/DEq9rRSEtFEur9iTrIYRaqlVu5mJz2zkOU71aaCV8C4/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NzMvMTc2NDYwLzBhOTNkNjY5LTI3N2UtNGNjNS05ODBmLTJkMzE3YWFkOWE1YS5qcGc",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/8eodfQCbgzsrMsHI6xf3YhwUi-XINPMZc5-7gO0zxdc/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NzMvMTc2NDYwLzBhOTNkNjY5LTI3N2UtNGNjNS05ODBmLTJkMzE3YWFkOWE1YS5qcGc"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/hWGn-gfR_hp8KsQO3niDajomSN8JbfpmrUtqoCkMcLs/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NzMvMTc2NDYwLzBhOTNkNjY5LTI3N2UtNGNjNS05ODBmLTJkMzE3YWFkOWE1YS5qcGc"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/PLrUc4nHNTm65C9uLk1ysHbZMycPOwCTUW4K4vZvMig/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NzMvMTc2NDYwLzBhOTNkNjY5LTI3N2UtNGNjNS05ODBmLTJkMzE3YWFkOWE1YS5qcGc"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/v_5gOSl_5yz8SGphfibZqEqc1XAnSLwfAK1_tC7gQxA/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NzMvMTc2NDYwLzBhOTNkNjY5LTI3N2UtNGNjNS05ODBmLTJkMzE3YWFkOWE1YS5qcGc"
+                    }
+                  },
+                  "subtitle": null
+                }
+              },
+              {
+                "id": 1194805,
+                "position": 1,
+                "kind": "video",
+                "properties": {
+                  "name": "Rencontrez Antoine, Responsable RSE et transition eÌnergeÌtique",
+                  "title": "Rencontrez Antoine, Responsable RSE et transition eÌnergeÌtique",
+                  "reference": "MbYbk1D",
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/nMD9QY7xLNOuiIqBh6neCak8Yt9ptj3zV5mEIafhRwA/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MjU1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0piclBBclIuanBn"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/hLnvF2icoI1JYK2waN-91ksjQ5zxONI6sjPPzQeq8Es/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MjU1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0piclBBclIuanBn",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/19krO_G13sx-39pCzzATjCcbuaZjNreWy9wWidcBSBg/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MjU1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0piclBBclIuanBn"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/U0HDeDmgPL9Dkv2_vr6yEvPUheAEUiL5RS0-smrOFMk/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MjU1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0piclBBclIuanBn"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/vSpvCFhcu8HLxcTBiAwnK3JGfhVkLDsdgYWNEOFo7js/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MjU1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0piclBBclIuanBn"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/uW-82cpZSV3BwL-iI9EbCx73whsLn6Set5rb-KeF92w/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MjU1LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0piclBBclIuanBn"
+                    }
+                  },
+                  "source": "youtube",
+                  "organization": null,
+                  "subtitle": null,
+                  "external_reference": "uKmWFp3J1qo",
+                  "display": "modal"
+                }
+              },
+              {
+                "id": 1194772,
+                "position": 1,
+                "kind": "image",
+                "properties": {
+                  "title": null,
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/1s8hhusqDVhLi0Yfk7I2B4OKlGlMqlR5KeExvCepQxU/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzcwMDEvMTcxMjY0LzU2N2JiMzQ3LTAzMjItNGFmMC05ZTU3LWE2MzkxYjExNzJhNy5qcGc"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/pw1niI7_thLpoNvuXxGTX0pGNOaYQ8VV8B1ihEOi8Ls/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzcwMDEvMTcxMjY0LzU2N2JiMzQ3LTAzMjItNGFmMC05ZTU3LWE2MzkxYjExNzJhNy5qcGc",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/ZeCQ0sG72aASvJyq0tBJM5gh73rmiux4BrBeOCj0QIQ/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzcwMDEvMTcxMjY0LzU2N2JiMzQ3LTAzMjItNGFmMC05ZTU3LWE2MzkxYjExNzJhNy5qcGc"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/Ocm3MvHgMjtwMOVY2rZNA-XeQlYyIHWl5l562wTcwjE/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzcwMDEvMTcxMjY0LzU2N2JiMzQ3LTAzMjItNGFmMC05ZTU3LWE2MzkxYjExNzJhNy5qcGc"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/U-zBhLjxcKztCnNnYDUWnXVqVi0BB38_x7VQPPBp6qQ/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzcwMDEvMTcxMjY0LzU2N2JiMzQ3LTAzMjItNGFmMC05ZTU3LWE2MzkxYjExNzJhNy5qcGc"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/L26hD-AvDGQs6L_5yRDwrZZL1NfKJQ5Tlcjf4lUB2E4/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzcwMDEvMTcxMjY0LzU2N2JiMzQ3LTAzMjItNGFmMC05ZTU3LWE2MzkxYjExNzJhNy5qcGc"
+                    }
+                  },
+                  "subtitle": null
+                }
+              },
+              {
+                "id": 1194807,
+                "position": 1,
+                "kind": "video",
+                "properties": {
+                  "name": "Rencontrez Nicolas, Acheteur IT",
+                  "title": "Rencontrez Nicolas, Acheteur IT",
+                  "reference": "JgOzlr6",
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/PE05Kis9fe3MoAgTMjAQML_gG65gX1sxm-OgdT_H70E/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTk4LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX2VXazczejAuanBn"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/UBACKZOCL8dyjxZCY6-V-SGiXo9PwwfUqKOdZ5LheX4/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTk4LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX2VXazczejAuanBn",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/Goo5vLUKPeSOKqBKlMtAoHeyyPD84XLappY4xIxUJvY/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTk4LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX2VXazczejAuanBn"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/lYzAYwjiGiPVdZevXFGooEf4dvYwfkCVdPDhLcp9G54/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTk4LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX2VXazczejAuanBn"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/VKE49lJxJz22auPS6TElsp1_FZit9-3Vy78DKidIIHI/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTk4LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX2VXazczejAuanBn"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/IzAqfVX7aRoWeoC88G7lq-O_r3Rr_cdggvoYbCFz-4U/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83MTk4LzE3MTI2NC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX2VXazczejAuanBn"
+                    }
+                  },
+                  "source": "youtube",
+                  "organization": null,
+                  "subtitle": null,
+                  "external_reference": "gYCkQk9nNGE",
+                  "display": "modal"
+                }
+              },
+              {
+                "id": 1194761,
+                "position": 1,
+                "kind": "image",
+                "properties": {
+                  "title": null,
+                  "image": {
+                    "small": {
+                      "url": "https://cdn-images.welcometothejungle.com/hZr_w92B37wcbpjWe7WmwA39V5p4U0RL7Wbwc6b7zNQ/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NTYvMTc2NDYwL2E0OTQyOGI3LTExMWMtNGJjNi1iZjQxLTIwNGQ3NDljZTkwZi5qcGc"
+                    },
+                    "url": "https://cdn-images.welcometothejungle.com/vSp08GC_0BdL8vyvPqMkfEVLPFzWQml8bx_Ofjmyzhk/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NTYvMTc2NDYwL2E0OTQyOGI3LTExMWMtNGJjNi1iZjQxLTIwNGQ3NDljZTkwZi5qcGc",
+                    "preload": {
+                      "url": "https://cdn-images.welcometothejungle.com/C-WFTgyKFyKKN9LgM7a7-iIeDhWooV4rw-KRpgMxAxU/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NTYvMTc2NDYwL2E0OTQyOGI3LTExMWMtNGJjNi1iZjQxLTIwNGQ3NDljZTkwZi5qcGc"
+                    },
+                    "medium": {
+                      "url": "https://cdn-images.welcometothejungle.com/1mFoVwUh5DbT8U6x-a4p_tdmCyiPPSHq5d3m_47d4yo/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NTYvMTc2NDYwL2E0OTQyOGI3LTExMWMtNGJjNi1iZjQxLTIwNGQ3NDljZTkwZi5qcGc"
+                    },
+                    "thumb": {
+                      "url": "https://cdn-images.welcometothejungle.com/w2ETehl0pBV8tkSTGgCzu3CV8VuTFb_VsvMVN_SXsxA/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NTYvMTc2NDYwL2E0OTQyOGI3LTExMWMtNGJjNi1iZjQxLTIwNGQ3NDljZTkwZi5qcGc"
+                    },
+                    "large": {
+                      "url": "https://cdn-images.welcometothejungle.com/ib2etKij7STCl9t_5MhnABidSZuMtPP089zFZpK9saU/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9pbWFnZS9maWxlLzc1NTYvMTc2NDYwL2E0OTQyOGI3LTExMWMtNGJjNi1iZjQxLTIwNGQ3NDljZTkwZi5qcGc"
+                    }
+                  },
+                  "subtitle": null
+                }
+              }
+            ]
+          },
+          "ats": "external",
+          "ats_questions": [],
+          "status": "published",
+          "social_image": "https://imagen.welcometothejungle.com/api/generate-image?data=%7B%22contractType%22%3A%22full_time%22%2C%22coverImage%22%3A%22https%3A%2F%2Fcdn-images.welcometothejungle.com%2FlaL1Q-c3WeXyNFy4qMZYyJtoUc7XRAVi36Ez7iSsSMM%2Frs%3Aauto%3A1200%3A627%3A%2Fq%3A85%2FczM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc%22%2C%22logo%22%3A%22https%3A%2F%2Fcdn-images.welcometothejungle.com%2FHNrUs9bBDR_e0vyBHkolCRzRJhfR_CShmaE1MzLOnFY%2Frs%3Aauto%3A400%3A%3A%2Fq%3A85%2FczM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8zMTgzLzE1Mzk3OS8zNjZiZTlhZC1kM2YwLTQxNDgtYTQwZC1jMTFiNjBkZmZkZTIuanBn%22%2C%22name%22%3A%22CAISSIERE%20-%20H%C3%94TE%20DE%20CAISSE%20%28H%2FF%29%22%2C%22office%22%3A%22Carnoules%22%2C%22organizationName%22%3A%22Groupement%20Mousquetaires%22%2C%22remote%22%3A%22unknown%22%7D&locale=fr-FR&template-id=wttj-job-og-image&token=8dee62bc61d867da3bc4ab52a6ecb95f84dad5eef20d181e65d2e53b007229cd",
+          "recruitment_process": null,
+          "contract_type": "full_time",
+          "remote": "unknown",
+          "summary": "",
+          "description": "<p>Acteur(trice) de la satisfaction/FidÃ©lisation clients</p><p>Vous Ãªtes en charge de lâaccueil des clients au sein des diffÃ©rents points de contacts dans le point de vente (Accueil, encaissement, carte de fidÃ©litÃ©, retours, accueil tÃ©lÃ©phonique).</p><p>Vous Ãªtes une femme ou un homme dotÃ©(e) dâun excellent relationnel et dâune capacitÃ© dâÃ©coute, vous vous assurez de la satisfaction des clients lors de leurs parcours dâachat et nâhÃ©sitez pas Ã  faire remonter leurs remarques dans un souci dâamÃ©lioration continue.</p><p>Vous Ãªtes partie prenante dans le parcours dâachats des clients et nâhÃ©sitez pas Ã  les informer sur les diffÃ©rents services du magasin et leur proposer les plus adaptÃ©s en fonction de leurs besoins et de leurs achats lors de leur passage en caisses.</p><p>Vous assurez l&#39;enregistrement des articles et effectuez l&#39;encaissement final des achats. Responsable de votre fonds de caisse, vous maÃ®trisez toutes les procÃ©dures liÃ©es au bon fonctionnement de la caisse.</p>",
+          "recruiter_proposal": null,
+          "company_description": null,
+          "experience_level": "LESS_THAN_6_MONTHS",
+          "company_summary": "Groupe de distribution avec 7 enseignes, axÃ© sur proximitÃ© et qualitÃ©.",
+          "profile": "<p>Sens du service client, souriant(e), vous assurez avec une grande rigueur vos missions, vous avez dÃ©jÃ  Ã©prouvÃ© ces qualitÃ©s dans une expÃ©rience significative sur un poste similaire ou avez lâenvie dâoffrir le meilleur des accueils Ã  nos clients</p>",
+          "name": "CAISSIERE - HÃTE DE CAISSE (H/F)",
+          "organization": {
+            "parity_women": null,
+            "has_external_ats": true,
+            "cover_image": {
+              "small": {
+                "url": "https://cdn-images.welcometothejungle.com/ZMxFTDSHbpw-hVsjy1DY0Wfrga2i_6v8IKZKM3htqQk/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc"
+              },
+              "url": "https://cdn-images.welcometothejungle.com/BxqW5DVLDVTbdXYuntP_s1cw5fLnpXOduwCC0MDXE2E/rs:auto:2000:450:/g:fp:0:0.5/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc",
+              "medium": {
+                "url": "https://cdn-images.welcometothejungle.com/yfwPhwBd4K2aeccUoZ2uCV8zmvgozNT2ZGE_tQjnEmw/rs:auto:900::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc"
+              },
+              "large": {
+                "url": "https://cdn-images.welcometothejungle.com/9Ez3W03811y10qxzKUqgCSAAO8JiQHbQ7sCBzoml24s/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc"
+              },
+              "social": {
+                "url": "https://cdn-images.welcometothejungle.com/laL1Q-c3WeXyNFy4qMZYyJtoUc7XRAVi36Ez7iSsSMM/rs:auto:1200:627:/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc"
+              }
+            },
+            "sectors": [
+              {
+                "name": "Grande distribution",
+                "parent_name": "Distribution"
+              },
+              {
+                "name": "Agroalimentaire / Nutrition animale",
+                "parent_name": "Industrie"
+              },
+              {
+                "name": "E-commerce",
+                "parent_name": "Distribution"
+              }
+            ],
+            "profile_type": "standard",
+            "default_language": "fr",
+            "automatic_email": true,
+            "turnover": null,
+            "media_facebook": "",
+            "reference": "zYeP3MN",
+            "creation_year": 1969,
+            "website_organization": {
+              "slug": "groupement-les-mousquetaires",
+              "i18n_descriptions": {
+                "fr": "<p>Le Groupement Mousquetaires regroupe 7 enseignes, dont IntermarchÃ©, Netto, BricomarchÃ©, Bricorama, BricoCash, Roady et Rapid Pare-Brise. Actif dans la grande distribution, lâagroalimentaire, le bricolage et lâautomobile, le groupement privilÃ©gie proximitÃ©, qualitÃ© et compÃ©titivitÃ©. PrÃ©sent internationalement, le Groupement Mousquetaires continue son expansion et renforce sa position sur le marchÃ© de la distribution.</p>"
+              }
+            },
+            "labels": [],
+            "media_instagram": "",
+            "industry": "Grande distribution, Agroalimentaire / Nutrition animale, E-commerce",
+            "gdpr_setting": {
+              "application_message": null,
+              "consent_duration": 2,
+              "privacy_policy_url": null
+            },
+            "parity_men": null,
+            "description": "<p>Le Groupement Mousquetaires regroupe 7 enseignes, dont IntermarchÃ©, Netto, BricomarchÃ©, Bricorama, BricoCash, Roady et Rapid Pare-Brise. Actif dans la grande distribution, lâagroalimentaire, le bricolage et lâautomobile, le groupement privilÃ©gie proximitÃ©, qualitÃ© et compÃ©titivitÃ©. PrÃ©sent internationalement, le Groupement Mousquetaires continue son expansion et renforce sa position sur le marchÃ© de la distribution.</p>",
+            "revenue": "55,6 Mdrs â¬",
+            "logo": {
+              "url": "https://cdn-images.welcometothejungle.com/HNrUs9bBDR_e0vyBHkolCRzRJhfR_CShmaE1MzLOnFY/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8zMTgzLzE1Mzk3OS8zNjZiZTlhZC1kM2YwLTQxNDgtYTQwZC1jMTFiNjBkZmZkZTIuanBn",
+              "thumb": {
+                "url": "https://cdn-images.welcometothejungle.com/cuD1LljoQ7Fq26F0PIYI_uGhMXJ9MnCszPhk3ID7mEc/rs:auto:70::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8zMTgzLzE1Mzk3OS8zNjZiZTlhZC1kM2YwLTQxNDgtYTQwZC1jMTFiNjBkZmZkZTIuanBn"
+              }
+            },
+            "media_twitter": "mousquetairesfr",
+            "expansion_metadata": null,
+            "headquarter": {
+              "address": "Parc de TrÃ©ville",
+              "local_address": null,
+              "city": "Vert-Le-Grand",
+              "latitude": 48.59835,
+              "longitude": 2.36637,
+              "country_code": "FR",
+              "district": "Essonne",
+              "zip_code": "91810",
+              "local_district": null,
+              "local_city": null
+            },
+            "name": "Groupement Mousquetaires",
+            "media_pinterest": "",
+            "nb_employees": 160000,
+            "media_youtube": "UCI1HowrBg91EQfd8nEQfgWA",
+            "jobs_count": 6534,
+            "media_linkedin": "les-mousquetaires",
+            "playlist_id": "PLGEIoDuy_6B_i8vK3LZ5Uearv0viEmHij",
+            "video_playlist_provider": "youtube",
+            "equality_indexes": {
+              "equality_among_highest_earners": 5,
+              "equality_index": 82,
+              "gap_in_annual_raises": null,
+              "gap_in_annual_raises_excluding_promotions": 20,
+              "gap_in_promotions": 15,
+              "gender_pay_gap": 27,
+              "maternity_leave_return_raise": 15,
+              "published": false,
+              "workforce_range": "251_999",
+              "year": 2023
+            },
+            "media_website_url": "https://www.mousquetaires.com/",
+            "average_age": null
+          },
+          "contract_duration_min": null,
+          "education_level": null,
+          "start_date": null,
+          "published_at": "2026-01-08T23:16:33Z",
+          "language": "fr",
+          "benefits": {
+            "FR": {
+              "categories": [
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "1-2 dny home-office",
+                        "en": "Between 1-2 days at home",
+                        "es": "Hasta 1-2 dÃ­as de teletrabajo",
+                        "fr": "Entre 1-2 jours de tÃ©lÃ©travail",
+                        "sk": "1-2 dni home-office"
+                      },
+                      "preview_order": 1,
+                      "reference": "ac9446d1-f9a9-449d-95fe-4407247b8367"
+                    }
+                  ],
+                  "category_ref": "c6cf668a-a25c-4c0e-ae99-486555ef6ef5",
+                  "name": {
+                    "cs": "Politika prÃ¡ce na dÃ¡lku",
+                    "en": "Remote work policy",
+                    "es": "PolÃ­tica de teletrabajo",
+                    "fr": "Politique de tÃ©lÃ©travail",
+                    "sk": "Politika prÃ¡ce na diaÄ¾ku"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "ObÄdy zajiÅ¡tÄny / vybavenÃ¡ kuchynÄ",
+                        "en": "Food service or stocked kitchen",
+                        "es": "Restaurante de empresa / Cocina para empleados",
+                        "fr": "Restaurant dâentreprise / Cuisine pour les employÃ©s",
+                        "sk": "Obedy zaistenÃ© / vybavenÃ¡ kuchyÅa"
+                      },
+                      "preview_order": 2,
+                      "reference": "ded0fea3-8712-4183-9ebb-51500cbfaef6"
+                    },
+                    {
+                      "name": {
+                        "cs": "MÃ­stnost pro kojenÃ­",
+                        "en": "Breastfeeding room",
+                        "es": "Sala de lactancia",
+                        "fr": "Salle dâallaitement",
+                        "sk": "MiestnosÅ¥ na dojÄenie"
+                      },
+                      "preview_order": 6,
+                      "reference": "c11f5f95-4775-438a-b4a3-a45f073673b1"
+                    }
+                  ],
+                  "category_ref": "6a809853-d5bd-40b7-a737-e9c658ce1513",
+                  "name": {
+                    "cs": "Å½ivot v kancelÃ¡Åu",
+                    "en": "Office life",
+                    "es": "Vida de oficina",
+                    "fr": "Vie au bureau",
+                    "sk": "Å½ivot v kancelÃ¡rii"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "TÃ½m vÄnujÃ­cÃ­ se diverzitÄ a inkluzi",
+                        "en": "Dedicated Diversity & inclusivity staff",
+                        "es": "Equipo dedicado a la Diversidad e inclusividad",
+                        "fr": "Ãquipe dÃ©diÃ©e Ã  la DiversitÃ© & inclusivitÃ©",
+                        "sk": "TÃ­m venujÃºci sa diverzite a inklÃºzii"
+                      },
+                      "preview_order": 4,
+                      "reference": "e3b54c75-3515-4567-a9b9-fddf8c5cf1c1"
+                    }
+                  ],
+                  "category_ref": "8ed30f93-99b8-4cd7-95e4-41dede007216",
+                  "name": {
+                    "cs": "Diverzita a inkluze",
+                    "en": "Diversity & inclusivity",
+                    "es": "Diversidad e inclusividad",
+                    "fr": "DiversitÃ© & inclusivitÃ©",
+                    "sk": "Diverzita a inklÃºzia"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "ZkrÃ¡cenÃ¡ pracovnÃ­ doba",
+                        "en": "Reduction of working time (RTT)",
+                        "es": "ReducciÃ³n del tiempo de trabajo (RTT)",
+                        "fr": "RTT / Jour de repos",
+                        "sk": "SkrÃ¡tenÃ¡ pracovnÃ¡ doba"
+                      },
+                      "preview_order": 3,
+                      "reference": "fb8db8e5-d9c6-4c9c-9877-634dc015c3aa"
+                    }
+                  ],
+                  "category_ref": "2773570c-7622-43a3-8b08-be91f7f0ac02",
+                  "name": {
+                    "cs": "DovolenÃ¡",
+                    "en": "Vacation & time off",
+                    "es": "Vacaciones y ausencias",
+                    "fr": "CongÃ©s & absences",
+                    "sk": "Dovolenka"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "PodÃ­l",
+                        "en": "Incentive bonus",
+                        "es": "BonificaciÃ³n",
+                        "fr": "IntÃ©ressement",
+                        "sk": "Podiel"
+                      },
+                      "preview_order": 5,
+                      "reference": "a864321b-a43f-42f1-83fa-e4f7023e734b"
+                    },
+                    {
+                      "name": {
+                        "cs": "ÃÄast",
+                        "en": "Profit sharing",
+                        "es": "ParticipaciÃ³n",
+                        "fr": "Participation",
+                        "sk": "ÃÄasÅ¥"
+                      },
+                      "preview_order": null,
+                      "reference": "952397b6-9e11-4aa6-832e-747a575f0491"
+                    },
+                    {
+                      "name": {
+                        "cs": "FiremnÃ­ spoÅenÃ­",
+                        "en": "Company saving plan",
+                        "es": "Plan de ahorro de empresa",
+                        "fr": "Plan dâÃ©pargne entreprise (PEE)",
+                        "sk": "FiremnÃ© sporenie"
+                      },
+                      "preview_order": null,
+                      "reference": "46766996-986d-4323-8ca6-a551171594d7"
+                    },
+                    {
+                      "name": {
+                        "cs": "PÅÃ­spÄvky od sociÃ¡lnÃ­ho vÃ½boru (Sport, Kultura, ...)",
+                        "en": "Social Committee subsidies (Sports, Culture, ...)",
+                        "es": "Subvenciones del comitÃ© social (Deporte, Cultura, ...)",
+                        "fr": "Subventions CSE (Sport, Culture,...)",
+                        "sk": "Granty sociÃ¡lneho a hospodÃ¡rskeho vÃ½boru"
+                      },
+                      "preview_order": null,
+                      "reference": "9cdacb06-f704-4af2-9c66-843e9fa62dc7"
+                    },
+                    {
+                      "name": {
+                        "cs": "ÄasovÄ rozliÅ¡enÃ½ spoÅicÃ­ ÃºÄet (CET)",
+                        "en": "Time-saving account (CET)",
+                        "es": "Cuenta ahorro tiempo (CET)",
+                        "fr": "Compte Ã©pargne-temps (CET)",
+                        "sk": "Äasovo rozlÃ­Å¡enÃ½ sporiaci ÃºÄet (CET)"
+                      },
+                      "preview_order": null,
+                      "reference": "1ddb0093-0cca-4c51-974d-a8663f02445d"
+                    }
+                  ],
+                  "category_ref": "fdaf60e3-94c4-4c03-8b9a-74f55177dc0d",
+                  "name": {
+                    "cs": "FinanÄnÃ­ vÃ½hody",
+                    "en": "Financial benefits",
+                    "es": "Beneficios financieros",
+                    "fr": "Avantages financiers",
+                    "sk": "FinanÄnÃ© vÃ½hody"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "Organizace rodinnÃ½ch akcÃ­",
+                        "en": "Company sponsored family events",
+                        "es": "DÃ­as familiares en el trabajo",
+                        "fr": "JournÃ©es famille en entreprise",
+                        "sk": "OrganizÃ¡cia rodinnÃ½ch akciÃ­"
+                      },
+                      "preview_order": null,
+                      "reference": "08ecda5f-66f9-4c4c-8c6a-34bd59df65b3"
+                    }
+                  ],
+                  "category_ref": "ccc1585c-322a-4a27-8689-31099ad0a772",
+                  "name": {
+                    "cs": "Podpora rodiÄÅ¯",
+                    "en": "Parental benefits",
+                    "es": "Prestaciones parentales",
+                    "fr": "ParentalitÃ©",
+                    "sk": "Podpora rodiÄov"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "VzÃ¡jemnÃ© zdravotnÃ­ pojiÅ¡tÄnÃ­ hrazenÃ© ve vÃ½Å¡i 100",
+                        "en": "Employer-paid health insurance",
+                        "es": "Mutua de salud 100% a cargo del empleador",
+                        "fr": "Mutuelle santÃ© prise en charge Ã  100%",
+                        "sk": "VzÃ¡jomnÃ© zdravotnÃ© poistenie hradenÃ© vo vÃ½Å¡ke 100"
+                      },
+                      "preview_order": null,
+                      "reference": "2d9ca487-186a-405e-a9bb-78d926972f38"
+                    }
+                  ],
+                  "category_ref": "c37c5d80-f26e-498a-9e52-79831ec13cef",
+                  "name": {
+                    "cs": "ZdravÃ­ a wellbeing",
+                    "en": "Health & wellness",
+                    "es": "Salud y bienestar",
+                    "fr": "SantÃ© & bien-Ãªtre",
+                    "sk": "Zdravie a wellbeing"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "SkupinovÃ½ plÃ¡n dÅ¯chodovÃ©ho spoÅenÃ­",
+                        "en": "Group retirement savings plan (PERCO)",
+                        "es": "Plan de ahorro colectivo para la jubilaciÃ³n",
+                        "fr": "Plan dâÃ©pargne pour la retraite collectif (PERCO)",
+                        "sk": "SkupinovÃ½ plÃ¡n dÃ´chodkovÃ©ho sporenia"
+                      },
+                      "preview_order": null,
+                      "reference": "02b3ab42-7ece-488a-9286-9e7c8d982d11"
+                    }
+                  ],
+                  "category_ref": "36c16472-cf16-4e78-883d-a6dc01162f52",
+                  "name": {
+                    "cs": "DÅ¯chody",
+                    "en": "Retirement",
+                    "es": "Pensiones",
+                    "fr": "Retraite & prÃ©voyance",
+                    "sk": "DÃ´chodky"
+                  }
+                },
+                {
+                  "benefits": [
+                    {
+                      "name": {
+                        "cs": "ParkoviÅ¡tÄ",
+                        "en": "Parking",
+                        "es": "Aparcamiento",
+                        "fr": "Parking",
+                        "sk": "Parkovisko"
+                      },
+                      "preview_order": null,
+                      "reference": "433347cc-86bd-4d99-8067-6e6270a3d833"
+                    }
+                  ],
+                  "category_ref": "0753b080-0729-4c6f-924d-bde72819d06a",
+                  "name": {
+                    "cs": "Doprava a mobilita",
+                    "en": "Transport & mobility",
+                    "es": "Transporte y movilidad",
+                    "fr": "Transports & mobilitÃ©",
+                    "sk": "Doprava a mobilita"
+                  }
+                }
+              ],
+              "count": 14,
+              "preview": [
+                {
+                  "name": {
+                    "cs": "1-2 dny home-office",
+                    "en": "Between 1-2 days at home",
+                    "es": "Hasta 1-2 dÃ­as de teletrabajo",
+                    "fr": "Entre 1-2 jours de tÃ©lÃ©travail",
+                    "sk": "1-2 dni home-office"
+                  },
+                  "reference": "ac9446d1-f9a9-449d-95fe-4407247b8367"
+                },
+                {
+                  "name": {
+                    "cs": "ObÄdy zajiÅ¡tÄny / vybavenÃ¡ kuchynÄ",
+                    "en": "Food service or stocked kitchen",
+                    "es": "Restaurante de empresa / Cocina para empleados",
+                    "fr": "Restaurant dâentreprise / Cuisine pour les employÃ©s",
+                    "sk": "Obedy zaistenÃ© / vybavenÃ¡ kuchyÅa"
+                  },
+                  "reference": "ded0fea3-8712-4183-9ebb-51500cbfaef6"
+                },
+                {
+                  "name": {
+                    "cs": "ZkrÃ¡cenÃ¡ pracovnÃ­ doba",
+                    "en": "Reduction of working time (RTT)",
+                    "es": "ReducciÃ³n del tiempo de trabajo (RTT)",
+                    "fr": "RTT / Jour de repos",
+                    "sk": "SkrÃ¡tenÃ¡ pracovnÃ¡ doba"
+                  },
+                  "reference": "fb8db8e5-d9c6-4c9c-9877-634dc015c3aa"
+                },
+                {
+                  "name": {
+                    "cs": "TÃ½m vÄnujÃ­cÃ­ se diverzitÄ a inkluzi",
+                    "en": "Dedicated Diversity & inclusivity staff",
+                    "es": "Equipo dedicado a la Diversidad e inclusividad",
+                    "fr": "Ãquipe dÃ©diÃ©e Ã  la DiversitÃ© & inclusivitÃ©",
+                    "sk": "TÃ­m venujÃºci sa diverzite a inklÃºzii"
+                  },
+                  "reference": "e3b54c75-3515-4567-a9b9-fddf8c5cf1c1"
+                },
+                {
+                  "name": {
+                    "cs": "PodÃ­l",
+                    "en": "Incentive bonus",
+                    "es": "BonificaciÃ³n",
+                    "fr": "IntÃ©ressement",
+                    "sk": "Podiel"
+                  },
+                  "reference": "a864321b-a43f-42f1-83fa-e4f7023e734b"
+                },
+                {
+                  "name": {
+                    "cs": "MÃ­stnost pro kojenÃ­",
+                    "en": "Breastfeeding room",
+                    "es": "Sala de lactancia",
+                    "fr": "Salle dâallaitement",
+                    "sk": "MiestnosÅ¥ na dojÄenie"
+                  },
+                  "reference": "c11f5f95-4775-438a-b4a3-a45f073673b1"
+                }
+              ]
+            }
+          },
+          "key_missions": [],
+          "office": {
+            "address": "Carnoules, Provence-Alpes-Cote d'Azur, France",
+            "local_address": "Carnoules, Provence-Alpes-CÃ´te d'Azur, France",
+            "city": "Carnoules",
+            "latitude": 43.30248,
+            "longitude": 6.1891,
+            "country_code": "FR",
+            "district": "Var",
+            "zip_code": "83660",
+            "local_district": "Var",
+            "local_city": "Carnoules"
+          },
+          "skills": [],
+          "videos": [
+            {
+              "name": "Rencontrez Yann, Responsable secteur bricolage",
+              "reference": "Nbq3qm7",
+              "image": {
+                "small": {
+                  "url": "https://cdn-images.welcometothejungle.com/WB-XITlCfvA-kPKGSagwql_uS_2xw2Oj76QGn3MxD9A/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83Nzc1LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0FvWnBxQW8uanBn"
+                },
+                "url": "https://cdn-images.welcometothejungle.com/xOZuE7PFPYXlLNrCdRbEjBoJi-q4tgQXkQQGVibTKsc/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83Nzc1LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0FvWnBxQW8uanBn",
+                "preload": {
+                  "url": "https://cdn-images.welcometothejungle.com/sU4_60otwcUjwtaIgoZo1Lz1vJcIrkGfvGG--N7epYA/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83Nzc1LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0FvWnBxQW8uanBn"
+                },
+                "medium": {
+                  "url": "https://cdn-images.welcometothejungle.com/xftK8zkGuXvzkK2HNkB8-nK_tRhY3VDgomc-eMidIMk/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83Nzc1LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0FvWnBxQW8uanBn"
+                },
+                "thumb": {
+                  "url": "https://cdn-images.welcometothejungle.com/L4yVYdOW6tF2tSfdTXmi8g0p2f91GVnM2CXaGHwToWo/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83Nzc1LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0FvWnBxQW8uanBn"
+                },
+                "large": {
+                  "url": "https://cdn-images.welcometothejungle.com/lN1MDvxqzPlmHBkOv1PMHC8p4AWV-Yw6nTWdl7soNEk/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83Nzc1LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX0FvWnBxQW8uanBn"
+                }
+              },
+              "source": "vimeo",
+              "external_reference": "1142021187"
+            },
+            {
+              "name": "Rencontrez ÃlÃ©a, Vendeuse dÃ©coration",
+              "reference": "Ndmew2V",
+              "image": {
+                "small": {
+                  "url": "https://cdn-images.welcometothejungle.com/SesXl_bja40mMX1abvvr6Ld1zVZLyphlIwCFoBTuXCs/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83NzM2LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX1B6bHBWUm0uanBn"
+                },
+                "url": "https://cdn-images.welcometothejungle.com/lC0VjWU5Cl4NdXaBJQp1bft5hs7n3P6SGqrqvvAlFHg/rs:auto:2000::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83NzM2LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX1B6bHBWUm0uanBn",
+                "preload": {
+                  "url": "https://cdn-images.welcometothejungle.com/zwkB9KYyz_PIBmU5R516s3ENGEHm0BXPkMXa1UM4mN8/rs:auto:40::/q:1/bl:100/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83NzM2LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX1B6bHBWUm0uanBn"
+                },
+                "medium": {
+                  "url": "https://cdn-images.welcometothejungle.com/G1JNVzD6ydSJv24CDDJgukv4oJCLbSAww7B7ejatUDo/rs:auto:980::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83NzM2LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX1B6bHBWUm0uanBn"
+                },
+                "thumb": {
+                  "url": "https://cdn-images.welcometothejungle.com/e62X9_Qt7xMoD6C0s0DjiQ3IV-GnpHuPQjnOW121CzI/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83NzM2LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX1B6bHBWUm0uanBn"
+                },
+                "large": {
+                  "url": "https://cdn-images.welcometothejungle.com/rc2kzzK1qq4_jSIoFEFD2VXkGhLyTr_PmyNS0K37z-8/rs:auto:1500::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy92aWRlby9pbWFnZS83NzM2LzE3NjQ2MC9ncm91cGVtZW50LWxlcy1tb3VzcXVldGFpcmVzX3ZpZGVvX1B6bHBWUm0uanBn"
+                }
+              },
+              "source": "vimeo",
+              "external_reference": "1142021152"
+            }
+          ]
+        },
+        "dataUpdateCount": 1,
+        "dataUpdatedAt": 1771318148252,
+        "error": null,
+        "errorUpdateCount": 0,
+        "errorUpdatedAt": 0,
+        "fetchFailureCount": 0,
+        "fetchFailureReason": null,
+        "fetchMeta": null,
+        "isInvalidated": false,
+        "status": "success",
+        "fetchStatus": "idle"
+      },
+      "queryKey": [
+        "job",
+        "fr",
+        "groupement-les-mousquetaires",
+        "caissiere-hote-de-caisse-h-f_carnoules"
+      ],
+      "queryHash": "[\"job\",\"fr\",\"groupement-les-mousquetaires\",\"caissiere-hote-de-caisse-h-f_carnoules\"]"
+    },
+    {
+      "state": {
+        "data": {
+          "hits": [
+            {
+              "contract_type": "full_time",
+              "experience_level_minimum": 0,
+              "has_experience_level_minimum": false,
+              "has_remote": true,
+              "has_salary_yearly_minimum": false,
+              "is_boosted": false,
+              "language": "fr",
+              "name": "VENDEUR FROMAGE-CHARCUTERIE TRADITIONNELLE - H/F- CDI TEMPS COMPLET",
+              "offices": [
+                {
+                  "city": "SolliÃ¨s-Pont",
+                  "country": "France",
+                  "country_code": "FR",
+                  "district": "Var",
+                  "state": "Provence-Alpes-Cote d'Azur"
+                }
+              ],
+              "organization": {
+                "cover_image": {
+                  "medium": {
+                    "url": "https://cdn-images.welcometothejungle.com/yfwPhwBd4K2aeccUoZ2uCV8zmvgozNT2ZGE_tQjnEmw/rs:auto:900::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc"
+                  },
+                  "small": {
+                    "url": "https://cdn-images.welcometothejungle.com/ZMxFTDSHbpw-hVsjy1DY0Wfrga2i_6v8IKZKM3htqQk/rs:auto:640::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy93ZWJzaXRlX29yZ2FuaXphdGlvbi9jb3Zlcl9pbWFnZS93dHRqX2ZyL2ZyLTBjOWI4NzdmLTlmYWMtNGM5OC1iYTYwLWU3MjIzYzBmZDE0ZS5qcGc"
+                  }
+                },
+                "description": null,
+                "logo": {
+                  "thumb": {
+                    "url": "https://cdn-images.welcometothejungle.com/cuD1LljoQ7Fq26F0PIYI_uGhMXJ9MnCszPhk3ID7mEc/rs:auto:70::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8zMTgzLzE1Mzk3OS8zNjZiZTlhZC1kM2YwLTQxNDgtYTQwZC1jMTFiNjBkZmZkZTIuanBn"
+                  },
+                  "url": "https://cdn-images.welcometothejungle.com/HNrUs9bBDR_e0vyBHkolCRzRJhfR_CShmaE1MzLOnFY/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8zMTgzLzE1Mzk3OS8zNjZiZTlhZC1kM2YwLTQxNDgtYTQwZC1jMTFiNjBkZmZkZTIuanBn"
+                },
+                "name": "Groupement Mousquetaires",
+                "nb_employees": 160000,
+                "reference": "zYeP3MN",
+                "slug": "groupement-les-mousquetaires"
+              },
+              "profession": {
+                "category": "Vente et service Ã  la clientÃ¨le",
+                "name": "Ventes au dÃ©tail"
+              },
+              "published_at": "2026-02-10T23:10:27.000Z",
+              "reference": "GM_4NdyK9a",
+              "remote": "unknown",
+              "salary_currency": null,
+              "salary_maximum": null,
+              "salary_minimum": null,
+              "salary_period": null,
+              "salary_yearly_minimum": null,
+              "sectors": [
+                {
+                  "name": "Grande distribution",
+                  "parent": "Distribution"
+                },
+                {
+                  "name": "Agroalimentaire / Nutrition animale",
+                  "parent": "Industrie"
+                },
+                {
+                  "name": "E-commerce",
+                  "parent": "Distribution"
+                }
+              ],
+              "slug": "vendeur-charcuterie-traditionnelle-h-f-cdi-temps-complet_sollies-pont"
+            }
+          ],
+          "limit": 6,
+          "nbHits": 1,
+          "offset": 0,
+          "processingTimeMs": 1,
+          "provider": "meilisearch",
+          "query": null
+        },
+        "dataUpdateCount": 1,
+        "dataUpdatedAt": 1771318148260,
+        "error": null,
+        "errorUpdateCount": 0,
+        "errorUpdatedAt": 0,
+        "fetchFailureCount": 0,
+        "fetchFailureReason": null,
+        "fetchMeta": null,
+        "isInvalidated": false,
+        "status": "success",
+        "fetchStatus": "idle"
+      },
+      "queryKey": [
+        "related_jobs",
+        "fr",
+        "groupement-les-mousquetaires",
+        "caissiere-hote-de-caisse-h-f_carnoules"
+      ],
+      "queryHash": "[\"related_jobs\",\"fr\",\"groupement-les-mousquetaires\",\"caissiere-hote-de-caisse-h-f_carnoules\"]"
+    },
+    {
+      "state": {
+        "data": null,
+        "dataUpdateCount": 1,
+        "dataUpdatedAt": 1771318148255,
+        "error": null,
+        "errorUpdateCount": 0,
+        "errorUpdatedAt": 0,
+        "fetchFailureCount": 0,
+        "fetchFailureReason": null,
+        "fetchMeta": null,
+        "isInvalidated": false,
+        "status": "success",
+        "fetchStatus": "idle"
+      },
+      "queryKey": [
+        "job",
+        "fr",
+        "groupement-les-mousquetaires",
+        "caissiere-hote-de-caisse-h-f_carnoules",
+        "company_personality"
+      ],
+      "queryHash": "[\"job\",\"fr\",\"groupement-les-mousquetaires\",\"caissiere-hote-de-caisse-h-f_carnoules\",\"company_personality\"]"
+    },
+    {
+      "state": {
+        "data": [],
+        "dataUpdateCount": 0,
+        "dataUpdatedAt": 1771318148279,
+        "error": null,
+        "errorUpdateCount": 0,
+        "errorUpdatedAt": 0,
+        "fetchFailureCount": 0,
+        "fetchFailureReason": null,
+        "fetchMeta": null,
+        "isInvalidated": false,
+        "status": "success",
+        "fetchStatus": "idle"
+      },
+      "queryKey": [
+        "bookmarks",
+        "keys",
+        "jobs"
+      ],
+      "queryHash": "[\"bookmarks\",\"keys\",\"jobs\"]"
+    }
+  ]
+}
