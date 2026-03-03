@@ -28,7 +28,7 @@ def clean_html(text: Optional[str]) -> str:
         >>> clean_html("Simple texte")
         'Simple texte'
     """
-    if not text or not isinstance(text, str):
+    if text is None or not isinstance(text, str) or not text:
         return ""
     
     # Quick check: only use BeautifulSoup if HTML tags detected
@@ -75,7 +75,7 @@ def normalize_text(text: Optional[str]) -> str:
         >>> normalize_text("Ligne1\\x00\\x01Ligne2")
         'Ligne1Ligne2'
     """
-    if not text:
+    if text is None or (isinstance(text, str) and not text):
         return ""
     
     # Clean HTML first (with fast HTML tag detection)
@@ -121,7 +121,8 @@ def extract_skills_list(skills_data) -> List[str]:
         >>> extract_skills_list(None)
         []
     """
-    if not skills_data:
+    # Handle None, empty strings, or empty lists
+    if skills_data is None or (isinstance(skills_data, str) and not skills_data.strip()):
         return []
     
     # If it's a comma-separated string

@@ -37,11 +37,11 @@ from logging.handlers import RotatingFileHandler
 from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
 
 # Imports applicatifs
-from src.ingest.silver.welcome_to_jungle import normalize_wttj_jobs
-from src.ingest.bronze.france_travail_rome_metiers import ingest_rome_metiers
-from src.ingest.bronze.france_travail import ingest_france_travail_offers
-from src.ingest.bronze.welcome_to_the_jungle import ingest_welcome_to_the_jungle
-from src.ingest.silver.merge_ft_wttj import merge_ft_wttj_datasets
+from src.ingest.silver.normalize_wttj_jobs import normalize_wttj_jobs
+from src.ingest.bronze.ingest_france_travail_rome_metiers import ingest_rome_metiers
+from src.ingest.bronze.ingest_france_travail_jobs import ingest_france_travail_offers
+from src.ingest.bronze.ingest_wttj_jobs import ingest_welcome_to_the_jungle
+from src.ingest.silver.merge_ft_wttj_datasets import merge_ft_wttj_datasets
 from src.observability.job_store import JobStore
 from src.utils.log_to_db import log_to_db
 from src.utils.time_helpers import format_eta
@@ -1013,7 +1013,7 @@ def predict(req: PredictRequest):
 
     pred = predict_top_k(ARTIFACTS, text, top_k=TOP_K, rome_index=rome_model)
     
-    logger.info(f"Prédiction réussie - Code ROME: {pred.get('code_rome', 'N/A')}")
+    logger.info(f"Prédiction réussie - Code ROME: {pred.get('rome_pred', 'N/A')} / {pred.get('rome_label', 'N/A')} ")
     
     return pred
 

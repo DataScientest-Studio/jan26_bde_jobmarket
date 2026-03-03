@@ -51,8 +51,11 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     status = "RUNNING"
     files: List[str] = []
     errors = 0
+
+    # Strorage instances
     storage_bronze = get_storage_from_env("bronze", "welcometothejungle")
     storage_silver = get_storage_from_env("silver", "welcometothejungle")
+
     # Optimized: list only runid folders, then segment=jobs_raw keys per runid
     if( dt is None or dt == "" or dt == "latest"):
         dt = get_last_dt_from_storage(storage_bronze, "")
@@ -83,10 +86,12 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
 
     # Estimation dynamique du nombre total de records
     total_files = len(jobs_raw_keys)
-
+    
+    # Initialize data list for all files
+    data = []
+    
     file_counter = 0
     for key in jobs_raw_keys:
-        data = []
         try:
             obj = storage_bronze.get_object_jsonl(key=key)
             # Iterlines to preserve memory load
@@ -216,7 +221,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     # Save a global dataframe for the entire job (optional, can be heavy if too many records)     
     df = pd.DataFrame(data)
     # storage_silver already in correct directory, just need to write with correct key
-    silver_key = f"dt={dt}/segment=jobs"
+    silver_key = f"dt={dt}/segment=jobs/all.jsonl"
     if output_format == "parquet":
         storage_silver.write_parquet(silver_key.replace(".jsonl", ".parquet"), df)
         files.append(silver_key.replace(".jsonl", ".parquet"))
@@ -253,8 +258,8 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
 # Main (new / resume / incremental)
 # ----------------------------
 def main() -> None:
-    #dt = "2026-02-28"
-    dt=""
+    dt = "2026-02-28"
+    #dt=""
     result = normalize_wttj_jobs(dt, output_format="parquet")
     print(f"normalize_wttj_jobs result: job_id={result.job_id}, status={result.status}, files={result.files}, errors={result.errors}")
 
