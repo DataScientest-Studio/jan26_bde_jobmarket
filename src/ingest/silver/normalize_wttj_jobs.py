@@ -16,6 +16,7 @@ Method is expose in a CLI entry point (main) and can be called by API in order t
 For example with airflow or any scheduler.
 """
 from __future__ import annotations
+import os
 import uuid
 import time
 import pandas as pd
@@ -32,7 +33,7 @@ from src.utils.wttj_utils import get_field_or_default, get_json_field_from_recor
 from src.utils.text_processing import clean_html, normalize_list_to_strings
 from src.utils.storage_tools import get_last_dt_from_storage
 from src.utils.log_to_db import log_to_db
-from src.utils.rome import get_rome_code_from_ml_prediction
+from src.utils.rome import get_rome_code_from_ml_prediction_via_api
 from src.storage.storage import get_storage_from_env
 import src.utils.time_helpers as time_helpers
 
@@ -78,8 +79,10 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     if( dt is None or dt == "" or dt == "latest"):
         dt = get_last_dt_from_storage(storage_bronze, "")
 
+    # Prefix for runid folders: dt=2026-02-28/runid=.../segment=jobs_raw/*.jsonl
     runid_prefix = f"dt={dt}/"
     runid_folders = storage_bronze.list_prefixes(runid_prefix)
+    # Process each runid folder to get jobs_raw jsonl files
     jobs_raw_keys = []
     start_time = time.time()
     for runid_folder in runid_folders:
@@ -108,13 +111,42 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     # Initialize data list for all files
     data = []
     
+    # Process each file
     file_counter = 0
-    for key in jobs_raw_keys:
+    global_start_time = time.time()
+    rome_api_calls = 0
+    rome_db_log_every = int(os.getenv("WTTJ_ROME_DB_LOG_EVERY", "100"))
+
+    for i, key in enumerate(jobs_raw_keys, 1):
+        elapsed_global = time.time() - global_start_time
+        processed_before_current = i - 1
+        global_remaining = (total_files - processed_before_current) * (elapsed_global / processed_before_current) if processed_before_current > 0 else 0
+        global_eta_str = time_helpers.format_eta(global_remaining)
+        logger.info(f"[normalize_wttj_jobs] File {i}/{total_files} | key={key} | Global ETA: {global_eta_str}")
         try:
             obj = storage_bronze.get_object_jsonl(key=key)
             # Iterlines to preserve memory load
-            for line_bytes in obj["Body"].iter_lines():
+            # No tqdm to avoid to load entire file in memory
+            line_count = 0
+            file_start_time = time.time()
+            content_length = obj.get("ContentLength") if isinstance(obj, dict) else None
+            bytes_processed = 0
+
+            for line_bytes in obj["Body"].iter_lines():                
                 #print(line_bytes[:3000])
+                line_count += 1
+                bytes_processed += len(line_bytes) + 1
+                if line_count % 500 == 0:
+                    elapsed_file = time.time() - file_start_time
+                    if content_length and content_length > 0 and bytes_processed > 0 and elapsed_file > 0:
+                        bytes_per_sec = bytes_processed / elapsed_file
+                        remaining_bytes = max(content_length - bytes_processed, 0)
+                        line_eta_seconds = remaining_bytes / bytes_per_sec if bytes_per_sec > 0 else 0
+                        line_eta_str = time_helpers.format_eta(line_eta_seconds)
+                        logger.info(f"    └─ {line_count} lines processed | ETA lines: {line_eta_str}")
+                    else:
+                        logger.info(f"    └─ {line_count} lines processed | ETA lines: N/A")
+
                 line = line_bytes.decode('utf-8', errors='ignore').strip()
             
                 if not line: continue
@@ -144,7 +176,8 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
 
                     name = clean_html(job_data.get("name", ""))
                     description = clean_html(job_data.get("description", ""))
-                    rome_code, rome_label = get_rome_code_from_ml_prediction(name, description)
+                    rome_code, rome_label = get_rome_code_from_ml_prediction_via_api(name, description)
+                    rome_api_calls += 1
                     profession = _normalize_profession_value(get_field_or_default(record, 'profession'))
 
                     wttj =silver_wttj(
@@ -181,17 +214,18 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                     row["rome_label"] = rome_label
                     data.append(row)
 
-                    log_to_db(
-                        endpoint="normalize_wttj_jobs_rome_prediction", 
-                        level="INFO",
-                        message=f"name : {name} - rome_code : {rome_code} | rome_label : {rome_label}",
-                        job_id=job_id,
-                        dt=dt,
-                        output_format=output_format,
-                        file=key,
-                        files_processed=file_counter,
-                        status="RUNNING"
-                    )
+                    if rome_db_log_every > 0 and (line_count % rome_db_log_every == 0):
+                        log_to_db(
+                            endpoint="normalize_wttj_jobs_rome_prediction", 
+                            level="INFO",
+                            message=f"name : {name} - rome_code : {rome_code} | rome_label : {rome_label}",
+                            job_id=job_id,
+                            dt=dt,
+                            output_format=output_format,
+                            file=key,
+                            files_processed=file_counter,
+                            status="RUNNING"
+                        )
 
                 except Exception as e:
                     errors += 1
@@ -255,7 +289,11 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
 
 
     status = "SUCCESS"
-    logger.info(f"[normalize_wttj_jobs] Done | job_id={job_id} | dt={dt} | output_format={output_format} | files={files} | errors={errors} | files counter={file_counter}")
+    logger.info(
+        f"[normalize_wttj_jobs] Done | job_id={job_id} | dt={dt} | output_format={output_format} | "
+        f"files={files} | errors={errors} | files counter={file_counter} | "
+        f"rome_api_calls={rome_api_calls}"
+    )
     try:
         log_to_db(
             endpoint="normalize_wttj_jobs",
@@ -276,8 +314,23 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
 # Main (new / resume / incremental)
 # ----------------------------
 def main() -> None:
-    dt = "2026-02-28"
+    #dt = "2026-02-28"
     #dt=""
+    # Initialize storage if not provided
+    storage_silver_merged = get_storage_from_env("bronze", "welcometothejungle")
+    logger.info(f"📂 Storage: silver/merged")
+    
+    # List all objects in the storage
+    prefix=""
+    # Get Immediate prefixes (simulate folders) under silver/merged/
+    all_dt = list(storage_silver_merged.list_prefixes(prefix))
+
+    dates = [v.replace('dt=', '').replace('/', '') for v in all_dt]
+    sorted_dates = sorted(dates)
+
+    dt=sorted_dates[-1] if sorted_dates else None
+    logger.info(f"📂 Latest dt found in silver/merged: {dt}")
+
     result = normalize_wttj_jobs(dt, output_format="parquet")
     print(f"normalize_wttj_jobs result: job_id={result.job_id}, status={result.status}, files={result.files}, errors={result.errors}")
 
