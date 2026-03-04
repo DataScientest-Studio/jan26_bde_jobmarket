@@ -14,7 +14,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-def get_rome_code_from_ml_prediction(name: str, description: str) -> Optional[str]:
+def get_rome_code_from_ml_prediction_via_api(name: str, description: str) -> Optional[str]:
     """
     Récupère code ROME principal depuis ML API.
     
