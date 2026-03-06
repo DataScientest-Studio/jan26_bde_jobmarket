@@ -43,8 +43,7 @@ services:
     restart: "no"
 
   jupyter:
-    build: .
-    image: jupyter/scipy-notebook:python-3.11
+    build: .                          # pour utiliser le Dockerfile local
     container_name: jobmarket-jupyter
     depends_on:
       - minio-init
@@ -74,11 +73,11 @@ services:
 
     working_dir: /home/jovyan/work
     command: >
-      bash -lc "
+      bash -c "
       pip install -U pip &&
       if [ -f requirements.txt ]; then pip install -r requirements.txt; fi &&
-      start-notebook.sh --NotebookApp.token=$${JUPYTER_TOKEN}
-      "
+      jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token=jobmarket
+      "    
   jobmarket-api:
     build:
       context: .
