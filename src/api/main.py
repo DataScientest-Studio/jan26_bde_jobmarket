@@ -41,6 +41,8 @@ from src.ingest.silver.normalize_wttj_jobs import normalize_wttj_jobs
 from src.ingest.bronze.ingest_france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.ingest_france_travail_jobs import ingest_france_travail_offers
 from src.ingest.bronze.ingest_wttj_jobs import ingest_welcome_to_the_jungle
+from src.ingest.bronze.ingest_wttj_collect_urls import collect_sitemap_urls
+from src.ingest.bronze.ingest_wttj_job_opt import ingest_welcome_to_the_jungle_opt
 from src.ingest.silver.merge_ft_wttj_datasets import merge_ft_wttj_datasets
 from src.observability.job_store import JobStore
 from src.utils.log_to_db import log_to_db
@@ -52,6 +54,8 @@ from src.api.models import (
     IngestResponse,
     IngestOffersResponse,
     IngestWTTJResponse,
+    CollectSitemapsResponse,
+    IngestWTTJOptResponse,
     MergeDatasetResponse,
     NormalizeWTTJResponse,
     JSONOnlyFilter
@@ -760,6 +764,327 @@ def run_welcome_to_jungle_task(
             })
 
 
+def run_collect_sitemaps_task(task_id: str, delay: float, max_results: int):
+    """Wrapper for collecting WTTJ sitemap URLs with status updates"""
+    import time
+
+    start_monotonic = time.monotonic()
+    started_at = datetime.now(timezone.utc)
+
+    if ENABLE_GRAFANA_LOGS:
+        emit_structured_log({
+            "timestamp": started_at.isoformat(),
+            "event_type": "job_started",
+            "run_id": task_id,
+            "source": "wttj_sitemaps",
+            "status": STATUS_RUNNING,
+            "progress_pct": 0,
+            "records_count": 0,
+            "pages_count": 0,
+            "errors_count": 0
+        })
+
+    try:
+        log_to_db('wttj_sitemaps', 'INFO', "📥 Début de la collecte des sitemaps WTTJ", task_id=task_id)
+        
+        result = collect_sitemap_urls(
+            query="",
+            entreprise="",
+            ville="",
+            max_results=max_results,
+            delay=delay
+        )
+        
+        duration_sec = time.monotonic() - start_monotonic
+        
+        if result.get("success"):
+            urls_count = result.get("urls_count", 0)
+            storage_key = result.get("storage_key")
+            
+            result_payload = {
+                "urls_count": urls_count,
+                "storage_key": storage_key,
+                "elapsed_s": duration_sec
+            }
+            
+            set_task(
+                task_id,
+                progress_pct=100,
+                message=f"Collecte réussie: {urls_count} URLs collectées",
+                records_count=urls_count,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+
+            log_to_db(
+                'wttj_sitemaps',
+                'INFO',
+                f"✅ {urls_count} URLs collectées - {format_eta(duration_sec)} (storage: {storage_key})",
+                task_id=task_id,
+                duration_sec=round(duration_sec, 2),
+                records_count=urls_count,
+                storage_key=storage_key
+            )
+            
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+            
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_finished",
+                    "run_id": task_id,
+                    "source": "wttj_sitemaps",
+                    "status": STATUS_SUCCESS,
+                    "progress_pct": 100,
+                    "records_count": urls_count,
+                    "pages_count": 0,
+                    "errors_count": 0,
+                    "duration_sec": round(duration_sec, 2)
+                })
+        else:
+            error_text = result.get("error", "Erreur inconnue")
+            
+            set_task(
+                task_id,
+                message=f"Échec de la collecte: {error_text}",
+                status=STATUS_FAILED,
+                completed_at=datetime.now(timezone.utc),
+                error=error_text,
+            )
+
+            log_to_db('wttj_sitemaps', 'ERROR', f"❌ Échec de la collecte: {error_text}", task_id=task_id, error=error_text)
+            
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, result=result, error_text=error_text)
+            
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_failed",
+                    "run_id": task_id,
+                    "source": "wttj_sitemaps",
+                    "status": STATUS_FAILED,
+                    "progress_pct": None,
+                    "records_count": 0,
+                    "pages_count": 0,
+                    "errors_count": 1,
+                    "duration_sec": round(duration_sec, 2)
+                })
+
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        
+        set_task(
+            task_id,
+            message=f"Erreur: {error_text}",
+            status=STATUS_FAILED,
+            completed_at=datetime.now(timezone.utc),
+            error=error_text,
+        )
+
+        log_to_db('wttj_sitemaps', 'ERROR', f"❌ Exception après {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+        
+        if ENABLE_GRAFANA_LOGS:
+            emit_structured_log({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": "job_failed",
+                "run_id": task_id,
+                "source": "wttj_sitemaps",
+                "status": STATUS_FAILED,
+                "progress_pct": None,
+                "records_count": 0,
+                "pages_count": 0,
+                "errors_count": 1,
+                "duration_sec": round(duration_sec, 2)
+            })
+
+
+def run_wttj_job_opt_task(
+    task_id: str,
+    mode: str,
+    max_urls: int,
+    workers: int,
+    part_size: int,
+    delay: float,
+    force_download_urls: bool
+):
+    """Wrapper for ingesting WTTJ jobs optimized (API REST) with status updates"""
+    import time
+
+    start_monotonic = time.monotonic()
+    started_at = datetime.now(timezone.utc)
+
+    if ENABLE_GRAFANA_LOGS:
+        emit_structured_log({
+            "timestamp": started_at.isoformat(),
+            "event_type": "job_started",
+            "run_id": task_id,
+            "source": "wttj_opt",
+            "status": STATUS_RUNNING,
+            "progress_pct": 0,
+            "records_count": 0,
+            "pages_count": 0,
+            "errors_count": 0
+        })
+
+    def update_progress(segment: str, current: int, total: int, ok: int, ko: int):
+        """Callback to update progress in real-time"""
+        progress_pct = int((current / total) * 100) if total > 0 else 0
+        set_task(
+            task_id,
+            progress_pct=progress_pct,
+            message=f"Ingestion optimisée: {current}/{total} URLs traitées (✓{ok} ✗{ko})",
+            pages_count=current,
+            errors_count=ko,
+        )
+    
+    try:
+        log_to_db('wttj_opt', 'INFO', "📥 Début de l'ingestion WTTJ optimisée (API REST)", task_id=task_id)
+        
+        result = ingest_welcome_to_the_jungle_opt(
+            storage=None,
+            mode=mode,
+            max_urls=max_urls,
+            workers=workers,
+            part_size=part_size,
+            delay=delay,
+            provided_run_id=task_id,
+            progress_callback=update_progress,
+            force_download_urls=force_download_urls
+        )
+        
+        duration_sec = time.monotonic() - start_monotonic
+        
+        if result.get("success"):
+            # Extract stats from jobs_opt segment
+            jobs_opt = result.get("jobs_opt", {})
+            urls_processed = jobs_opt.get("processed", 0)
+            urls_ok = jobs_opt.get("ok", 0)
+            urls_ko = jobs_opt.get("ko", 0)
+            records_written = jobs_opt.get("written", 0)
+            
+            result_payload = {
+                "run_id": result.get("run_id"),
+                "dt": result.get("dt"),
+                "mode": result.get("mode"),
+                "urls_total": urls_processed,
+                "urls_processed": urls_processed,
+                "urls_ok": urls_ok,
+                "urls_ko": urls_ko,
+                "records_written": records_written,
+                "elapsed_s": result.get("elapsed_s"),
+                "storage_prefix": f"dt={result.get('dt')}/run_id={result.get('run_id')}"
+            }
+
+            set_task(
+                task_id,
+                progress_pct=100,
+                message=f"Ingestion optimisée réussie: {records_written} records écrits",
+                records_count=records_written,
+                pages_count=urls_processed,
+                errors_count=urls_ko,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+
+            log_to_db(
+                'wttj_opt',
+                'INFO',
+                (
+                    f"✅ {records_written} records écrits "
+                    f"({urls_processed} URLs, {urls_ko} erreurs) - {format_eta(duration_sec)}"
+                ),
+                task_id=task_id,
+                duration_sec=round(duration_sec, 2),
+                records_count=records_written,
+                error_count=urls_ko,
+                urls_processed=urls_processed
+            )
+            
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+            
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_finished",
+                    "run_id": task_id,
+                    "source": "wttj_opt",
+                    "status": STATUS_SUCCESS,
+                    "progress_pct": 100,
+                    "records_count": records_written,
+                    "pages_count": urls_processed,
+                    "errors_count": urls_ko,
+                    "duration_sec": round(duration_sec, 2)
+                })
+        else:
+            error_text = result.get("error", "Erreur inconnue")
+            set_task(
+                task_id,
+                message=f"Échec de l'ingestion optimisée: {error_text}",
+                status=STATUS_FAILED,
+                completed_at=datetime.now(timezone.utc),
+                error=error_text,
+            )
+
+            log_to_db('wttj_opt', 'ERROR', f"❌ Échec de l'ingestion: {error_text}", task_id=task_id, error=error_text)
+            
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, result=result, error_text=error_text)
+            
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_failed",
+                    "run_id": task_id,
+                    "source": "wttj_opt",
+                    "status": STATUS_FAILED,
+                    "progress_pct": None,
+                    "records_count": 0,
+                    "pages_count": 0,
+                    "errors_count": 1,
+                    "duration_sec": round(duration_sec, 2)
+                })
+
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        
+        set_task(
+            task_id,
+            message=f"Erreur: {error_text}",
+            status=STATUS_FAILED,
+            completed_at=datetime.now(timezone.utc),
+            error=error_text,
+        )
+
+        log_to_db('wttj_opt', 'ERROR', f"❌ Exception après {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+        
+        if ENABLE_GRAFANA_LOGS:
+            emit_structured_log({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": "job_failed",
+                "run_id": task_id,
+                "source": "wttj_opt",
+                "status": STATUS_FAILED,
+                "progress_pct": None,
+                "records_count": 0,
+                "pages_count": 0,
+                "errors_count": 1,
+                "duration_sec": round(duration_sec, 2)
+            })
+
+
 def run_merge_datasets_task(task_id: str, ft_prefix: Optional[str], wttj_prefix: Optional[str], 
                              output_prefix: Optional[str], output_format: str):
     """Wrapper pour la fusion des datasets avec mise à jour du statut"""
@@ -1137,7 +1462,9 @@ Utile pour découvrir les endpoints d'ingestion et monitorer les tâches en cour
     ingestion_operations = [
         "ingest_rome_metiers",
         "ingest_france_travail_offers",
-        "ingest_welcome_to_jungle"
+        "ingest_welcome_to_jungle",
+        "collect_wttj_sitemaps",
+        "ingest_wttj_opt"
     ]
     
     return {
@@ -1177,6 +1504,28 @@ Utile pour découvrir les endpoints d'ingestion et monitorer les tâches en cour
                     "mode (str, optionnel: new/resume/incremental)",
                     "max_jobs (int, optionnel)",
                     "max_companies (int, optionnel)"
+                ]
+            },
+            {
+                "endpoint": "POST /ingest/welcome-to-the-jungle/sitemaps",
+                "description": "Collecte des URLs WTTJ depuis les sitemaps XML",
+                "params": [
+                    "background (bool, optionnel)",
+                    "delay (float, optionnel)",
+                    "max_results (int, optionnel)"
+                ]
+            },
+            {
+                "endpoint": "POST /ingest/welcome-to-the-jungle/jobs-optimized",
+                "description": "Ingestion optimisée WTTJ via API REST avec fallback JSON-LD",
+                "params": [
+                    "background (bool, optionnel)",
+                    "mode (str, optionnel: new/resume/incremental)",
+                    "max_urls (int, optionnel)",
+                    "workers (int, optionnel)",
+                    "part_size (int, optionnel)",
+                    "delay (float, optionnel)",
+                    "force_download_urls (bool, optionnel)"
                 ]
             }
         ]
@@ -1577,6 +1926,351 @@ des pages jobs et companies pour stockage en bronze.
             
         except Exception as e:
             logger.error(f"❌ Erreur lors de l'ingestion WTTJ: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Erreur lors de l'ingestion: {str(e)}"
+            )
+
+
+@app.post(
+    "/ingest/welcome-to-the-jungle/sitemaps",
+    response_model=CollectSitemapsResponse,
+    tags=["Ingestion"],
+    summary="Collecter les URLs depuis les sitemaps WTTJ",
+    description="""Collecte les URLs depuis les sitemaps Welcome to the Jungle.
+
+Cette opération récupère les URLs des pages jobs depuis les sitemaps XML de WTTJ
+et les stocke dans le système de stockage bronze pour traitement ultérieur.
+
+**Modes d'exécution:**
+
+- **Synchrone** (background=false): Attend la fin complète de la collecte
+- **Asynchrone** (background=true): Lance la collecte en arrière-plan
+
+**Paramètres de contrôle:**
+
+- **delay**: Délai en secondes entre chaque requête (défaut: 0.5s)
+- **max_results**: Nombre maximum d'URLs à collecter (0 = toutes)
+
+**Utilisation:**
+
+```bash
+# Collecte complète avec délai par défaut (synchrone)
+curl -X POST "http://localhost:8000/ingest/welcome-to-the-jungle/sitemaps"
+
+# Collecte en arrière-plan
+curl -X POST "http://localhost:8000/ingest/welcome-to-the-jungle/sitemaps?background=true"
+
+# Collecte limitée à 1000 URLs avec délai de 1s
+curl -X POST "http://localhost:8000/ingest/welcome-to-the-jungle/sitemaps?max_results=1000&delay=1.0"
+```
+"""
+)
+async def collect_sitemaps_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(False, description="Lancer en arrière-plan"),
+    delay: float = Query(0.5, description="Délai entre chaque requête (secondes)"),
+    max_results: int = Query(0, description="Nombre max d'URLs à collecter (0 = toutes)")
+):
+    """Collecte les URLs depuis les sitemaps WTTJ et les stocke en bronze.
+
+Cette opération est généralement rapide (quelques secondes pour ~10k URLs).
+Les URLs sont stockées dans bronze/welcometothejungle/sitemap/urls.txt.
+"""
+    logger.info(f"Requête de collecte sitemaps reçue (background={background}, delay={delay}, max_results={max_results})")
+    
+    if background:
+        # Générer un task_id unique
+        task_id = utc_run_id()
+        
+        # Enregistrer la tâche
+        ACTIVE_TASKS[task_id] = {
+            "operation": "collect_wttj_sitemaps",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Collecte des sitemaps WTTJ en cours (max_results: {max_results or 'toutes'}, delay: {delay}s)...",
+            "params": {
+                "delay": delay,
+                "max_results": max_results
+            }
+        }
+        if job_store.enabled:
+            job_store.create(
+                run_id=task_id,
+                job_type="import",
+                source="wttj_sitemaps",
+                params={
+                    "background": True,
+                    "delay": delay,
+                    "max_results": max_results,
+                },
+                message=f"Collecte des sitemaps WTTJ en cours (max_results: {max_results or 'toutes'}, delay: {delay}s)...",
+            )
+        
+        # Lancer en arrière-plan avec wrapper
+        logger.info("Lancement de la collecte sitemaps WTTJ en arrière-plan")
+        background_tasks.add_task(
+            run_collect_sitemaps_task,
+            task_id,
+            delay,
+            max_results
+        )
+        
+        return CollectSitemapsResponse(
+            success=True,
+            message=f"Collecte sitemaps WTTJ lancée en arrière-plan (task_id: {task_id})",
+            urls_count=0,
+            storage_key=task_id,
+            elapsed_s=None,
+            error=None
+        )
+    else:
+        # Exécution synchrone
+        import time
+        
+        try:
+            start_time = time.time()
+            
+            # Appel de la fonction de collecte
+            logger.info("📥 Début de la collecte synchrone des sitemaps WTTJ")
+            result = collect_sitemap_urls(
+                query="",
+                entreprise="",
+                ville="",
+                max_results=max_results,
+                delay=delay
+            )
+            
+            elapsed_s = time.time() - start_time
+            
+            if result.get("success"):
+                urls_count = result.get("total_processed", 0)
+                storage_key = result.get("storage_key")
+                
+                logger.info(
+                    f"✅ Collecte réussie: {urls_count} URLs en {elapsed_s:.2f}s (storage: {storage_key})"
+                )
+                
+                return CollectSitemapsResponse(
+                    success=True,
+                    message=f"Collecte réussie: {urls_count} URLs collectées",
+                    urls_count=urls_count,
+                    storage_key=storage_key,
+                    elapsed_s=elapsed_s,
+                    error=None
+                )
+            else:
+                error_msg = result.get("error", "Erreur inconnue")
+                logger.error(f"❌ Échec de la collecte: {error_msg}")
+                
+                return CollectSitemapsResponse(
+                    success=False,
+                    message=f"Échec de la collecte: {error_msg}",
+                    urls_count=0,
+                    storage_key=None,
+                    elapsed_s=elapsed_s,
+                    error=error_msg
+                )
+                
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de la collecte sitemaps: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erreur lors de la collecte des sitemaps: {str(e)}"
+            )
+
+
+@app.post(
+    "/ingest/welcome-to-the-jungle/jobs-optimized",
+    response_model=IngestWTTJOptResponse,
+    tags=["Ingestion"],
+    summary="Ingérer les jobs WTTJ via crawl optimisée",
+    description="""Déclenche l'ingestion optimisée des offres Welcome to the Jungle via crawl.
+
+Cette version utilise un crawler pour récupérer les données complètes.
+
+**Modes d'exécution:**
+
+- **Synchrone** (background=false): Attend la fin complète de l'ingestion
+- **Asynchrone** (background=true): Lance l'ingestion en arrière-plan
+
+**Modes d'ingestion:**
+
+- **new**: Nouveau run avec run_id généré
+- **resume**: Reprend un run existant
+- **incremental**: Skip les URLs déjà traitées
+
+**Paramètres de contrôle:**
+
+- **max_urls**: Limite le nombre d'URLs à traiter (0 = toutes)
+- **workers**: Nombre de workers concurrents (défaut: 8)
+- **part_size**: Taille des chunks JSONL (défaut: 500)
+- **delay**: Délai entre requêtes par thread en secondes (défaut: 1.0)
+- **force_download_urls**: Force le re-téléchargement des URLs depuis les sitemaps
+
+**Utilisation:**
+
+```bash
+# Ingestion complète en arrière-plan
+curl -X POST "http://localhost:8000/ingest/welcome-to-the-jungle/jobs-optimized?background=true"
+
+# Test avec 1000 URLs et 4 workers
+curl -X POST "http://localhost:8000/ingest/welcome-to-the-jungle/jobs-optimized?max_urls=1000&workers=4"
+
+# Mode incremental avec délai personnalisé
+curl -X POST "http://localhost:8000/ingest/welcome-to-the-jungle/jobs-optimized?mode=incremental&delay=2.0"
+```
+"""
+)
+async def ingest_wttj_jobs_optimized_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(False, description="Lancer en arrière-plan"),
+    mode: str = Query("new", description="Mode d'ingestion (new, resume, incremental)"),
+    max_urls: int = Query(0, description="Limiter le nombre d'URLs (0 = toutes)"),
+    workers: int = Query(8, description="Nombre de workers concurrents"),
+    part_size: int = Query(5000, description="Taille des chunks JSONL en records"),
+    delay: float = Query(2.0, description="Délai entre requêtes par thread (secondes)"),
+    force_download_urls: bool = Query(True, description="Forcer le re-téléchargement des URLs")
+):
+    """Ingestion optimisée du crawl de WTTJ.
+
+Utilise un crawler pour récupérer les données complètes.
+"""
+    logger.info(
+        f"Requête d'ingestion WTTJ optimisée reçue (background={background}, mode={mode}, "
+        f"max_urls={max_urls}, workers={workers}, delay={delay}, force_download_urls={force_download_urls})"
+    )
+    
+    if background:
+        # Générer un task_id unique
+        task_id = utc_run_id()
+        
+        # Enregistrer la tâche
+        ACTIVE_TASKS[task_id] = {
+            "operation": "ingest_wttj_opt",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Ingestion WTTJ optimisée en cours (mode: {mode}, max_urls: {max_urls or 'toutes'}, workers: {workers})...",
+            "params": {
+                "mode": mode,
+                "max_urls": max_urls,
+                "workers": workers,
+                "part_size": part_size,
+                "delay": delay,
+                "force_download_urls": force_download_urls
+            }
+        }
+        if job_store.enabled:
+            job_store.create(
+                run_id=task_id,
+                job_type="import",
+                source="wttj_opt",
+                params={
+                    "background": True,
+                    "mode": mode,
+                    "max_urls": max_urls,
+                    "workers": workers,
+                    "part_size": part_size,
+                    "delay": delay,
+                    "force_download_urls": force_download_urls
+                },
+                message=f"Ingestion WTTJ optimisée en cours (mode: {mode}, max_urls: {max_urls or 'toutes'}, workers: {workers})...",
+            )
+        
+        # Lancer en arrière-plan avec wrapper
+        logger.info("Lancement de l'ingestion WTTJ optimisée en arrière-plan")
+        background_tasks.add_task(
+            run_wttj_job_opt_task,
+            task_id,
+            mode,
+            max_urls,
+            workers,
+            part_size,
+            delay,
+            force_download_urls
+        )
+        
+        return IngestWTTJOptResponse(
+            success=True,
+            message=f"Ingestion WTTJ optimisée lancée en arrière-plan (task_id: {task_id})",
+            run_id=task_id,
+            mode=mode,
+            urls_total=None,
+            urls_processed=None,
+            urls_ok=None,
+            urls_ko=None,
+            records_written=None,
+            elapsed_s=None,
+            error=None
+        )
+    else:
+        # Exécution synchrone
+        try:
+            logger.info("📥 Début de l'ingestion synchrone WTTJ optimisée")
+            result = ingest_welcome_to_the_jungle_opt(
+                storage=None,
+                mode=mode,
+                max_urls=max_urls,
+                workers=workers,
+                part_size=part_size,
+                delay=delay,
+                provided_run_id=None,
+                progress_callback=None,
+                force_download_urls=force_download_urls
+            )
+            
+            if result.get("success"):
+                # Extract stats from jobs_opt segment
+                jobs_opt = result.get("jobs_opt", {})
+                urls_processed = jobs_opt.get("processed", 0)
+                urls_ok = jobs_opt.get("ok", 0)
+                urls_ko = jobs_opt.get("ko", 0)
+                records_written = jobs_opt.get("written", 0)
+                
+                logger.info(
+                    f"✅ Ingestion réussie: {records_written} records écrits "
+                    f"({urls_processed} URLs, {urls_ko} erreurs)"
+                )
+                
+                return IngestWTTJOptResponse(
+                    success=True,
+                    message=result.get("message", ""),
+                    run_id=result.get("run_id"),
+                    dt=result.get("dt"),
+                    mode=result.get("mode"),
+                    urls_total=urls_processed,  # Total = processed in this context
+                    urls_processed=urls_processed,
+                    urls_ok=urls_ok,
+                    urls_ko=urls_ko,
+                    records_written=records_written,
+                    elapsed_s=result.get("elapsed_s"),
+                    storage_prefix=f"dt={result.get('dt')}/run_id={result.get('run_id')}",
+                    error=None
+                )
+            else:
+                error_msg = result.get("error", "Erreur inconnue")
+                logger.error(f"❌ Échec de l'ingestion: {error_msg}")
+                
+                return IngestWTTJOptResponse(
+                    success=False,
+                    message=result.get("message", "Échec de l'ingestion"),
+                    run_id=result.get("run_id"),
+                    dt=result.get("dt"),
+                    mode=result.get("mode"),
+                    urls_total=None,
+                    urls_processed=None,
+                    urls_ok=None,
+                    urls_ko=None,
+                    records_written=None,
+                    elapsed_s=result.get("elapsed_s"),
+                    storage_prefix=None,
+                    error=error_msg
+                )
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de l'ingestion WTTJ optimisée: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, 
                 detail=f"Erreur lors de l'ingestion: {str(e)}"
