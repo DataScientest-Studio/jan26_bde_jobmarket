@@ -285,7 +285,8 @@ def ingest_welcome_to_the_jungle(
             "companies": companies_result,
             "elapsed_s": elapsed,
             "total_processed": jobs_result["processed"] + companies_result["processed"],
-            "total_written": total_records
+            "total_written": total_records,
+            "crawler_version": 1
         }
     
     except Exception as e:
