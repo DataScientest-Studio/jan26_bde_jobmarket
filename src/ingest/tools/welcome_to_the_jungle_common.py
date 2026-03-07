@@ -21,14 +21,58 @@ import src.ingest.tools.rate_limiter as RateLimiter
 # Data models
 from src.ingest.data_models.bronze_datamodel_class import wtt_bronze_datamodels
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 logger = logging.getLogger("wttj.ingest.bronze")
+thread_trace_logger = logging.getLogger("wttj.ingest.bronze.threadtrace")
 
 # ----------------------------
 # Load environment variables
 # ----------------------------
 from src.config.env import load_project_env
 load_project_env()  # safe à rappeler (idempotent)
+
+
+def _is_truthy(value: str) -> bool:
+    """Helper to parse environment variable as boolean."""
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def setup_thread_trace_logging() -> bool:
+    """
+    Configure thread trace logging if enabled via environment variables.
+    Returns True if trace logging is enabled and configured successfully.
+    """
+    trace_enabled = _is_truthy(os.getenv("WTTJ_OPT_THREAD_TRACE_ENABLED", "0"))
+    trace_file = os.getenv(
+        "WTTJ_OPT_THREAD_TRACE_FILE",
+        "logs/ingestion/wttj_thread_trace.log",
+    ).strip()
+
+    if trace_enabled and trace_file:
+        trace_path = os.path.abspath(trace_file)
+        trace_dir = os.path.dirname(trace_path)
+        if trace_dir:
+            os.makedirs(trace_dir, exist_ok=True)
+
+        # Reset file handlers so each run starts with a clean trace file
+        for handler in list(thread_trace_logger.handlers):
+            if isinstance(handler, logging.FileHandler):
+                thread_trace_logger.removeHandler(handler)
+                handler.close()
+
+        file_handler = logging.FileHandler(trace_path, mode="w", encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+        )
+        thread_trace_logger.addHandler(file_handler)
+
+        thread_trace_logger.setLevel(logging.INFO)
+        thread_trace_logger.propagate = False
+        logger.info("Thread trace file logging enabled: %s", trace_path)
+        return True
+    
+    return False
 
 SITEMAP_INDEX = os.getenv("WTTJ_SITEMAP_INDEX", "https://www.welcometothejungle.com/sitemaps/index.xml.gz")
 WTTJ_SITEMAP_NS= {"sm": os.getenv("WTTJ_SITEMAP_NS_URL", "http://www.sitemaps.org/schemas/sitemap/0.9")}    
@@ -313,13 +357,32 @@ class FetchResult:
         self.error = error
 
 
-def fetch_page(session: requests.Session, limiter, url: str) -> FetchResult:
+def fetch_page(session: requests.Session, limiter, url: str, trace_enabled: bool = False) -> FetchResult:
     """Fetch avec pool de proxies"""
+    thread_name = threading.current_thread().name
+    
+    if trace_enabled:
+        thread_trace_logger.info(
+            "event=FETCH_START thread=%s url=%s",
+            thread_name,
+            url,
+        )
+    
+    fetch_started_at = time.time()
     limiter.acquire()
     
     try:
-        
         r = session.get(url, timeout=30)
+        fetch_elapsed_ms = int((time.time() - fetch_started_at) * 1000)
+        
+        if trace_enabled:
+            thread_trace_logger.info(
+                "event=FETCH_DONE thread=%s status=%s elapsed_ms=%d url=%s",
+                thread_name,
+                r.status_code,
+                fetch_elapsed_ms,
+                url,
+            )
         
         if r.status_code >= 400:
             return FetchResult(url=url, ok=False, status_code=r.status_code, html=r.text, 
@@ -328,6 +391,17 @@ def fetch_page(session: requests.Session, limiter, url: str) -> FetchResult:
         return FetchResult(url=url, ok=True, status_code=r.status_code, html=r.text, error=None)
     
     except Exception as e:
+        fetch_elapsed_ms = int((time.time() - fetch_started_at) * 1000)
+        
+        if trace_enabled:
+            thread_trace_logger.info(
+                "event=FETCH_DONE thread=%s status=ERROR elapsed_ms=%d url=%s error=%s",
+                thread_name,
+                fetch_elapsed_ms,
+                url,
+                str(e),
+            )
+        
         logger.error(f"[FETCH ERROR] {url}: {e}")
         return FetchResult(url=url, ok=False, status_code=None, html=None, error=str(e))
 
@@ -501,13 +575,18 @@ def ingest_segment(
             "elapsed_s": 0.0
         }
  
+    # Check if thread trace logging is enabled
+    trace_enabled = _is_truthy(os.getenv("WTTJ_OPT_THREAD_TRACE_ENABLED", "0"))
+    if trace_enabled:
+        setup_thread_trace_logging()
+    
     # We use a ThreadPoolExecutor to fetch pages concurrently. 
     # For each URL, we submit a fetch_page task to the pool, which will return a FetchResult when done.
     with ThreadPoolExecutor(max_workers=workers) as pool:
         # We create a dictionary mapping each Future to its corresponding URL, so that when a Future completes, 
         # we can easily identify which URL it corresponds to.
         logger.info(f"⏳ Submitting {len(urls_todo)} URLs to {workers} workers...")
-        futures = {pool.submit(fetch_page, session, limiter, url): url for url in urls_todo}
+        futures = {pool.submit(fetch_page, session, limiter, url, trace_enabled): url for url in urls_todo}
         logger.info(f"✅ All {len(futures)} tasks submitted. Starting fetch loop with progress_log_every={progress_log_every}")
 
         # We use as_completed to iterate over the Futures as they complete, regardless of the order they were submitted.
@@ -524,10 +603,11 @@ def ingest_segment(
             job_data = None
 
             if res.html and len(res.html)< 1000:
-                print(f"HTML snippet for {res.url}: {res.html[:200]}")
+                print(f"HTML snippet for {res.url} : {res.html[:200]}")
 
             if res.html:
                 initial_data = extract_initial_data_from_html(res.html)
+
                 # We only pick the job_data if we successfully extracted the initial_data and if we're in the "jobs" segment.
                 if initial_data and segment == "jobs":
                     job_data = pick_job_data(initial_data)
