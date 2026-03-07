@@ -102,6 +102,9 @@ pgadmin/servers.json
 
 # Env folder for jobmarket
 env_job_market/
+env_*/
+
 logs/api/structured.jsonl
 
 /docs/
+/test/
