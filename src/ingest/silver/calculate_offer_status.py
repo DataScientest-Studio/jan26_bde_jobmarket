@@ -192,8 +192,8 @@ def get_latest_parquet_files(storage: Storage, prefix: str = "", limit: int = 2)
     """
     try:
         # List all objects in the storage
-        all_objects = storage.list_objects(prefix)
-        
+        all_objects = list(storage.list_keys(prefix))
+
         # Filter parquet files only
         parquet_files = [obj for obj in all_objects if obj.endswith('.parquet')]
         
@@ -212,7 +212,7 @@ def get_latest_parquet_files(storage: Storage, prefix: str = "", limit: int = 2)
 
 
 def run_status_tracking(
-    storage: Optional[Storage] = None,
+    storage_silver_merged: Optional[Storage] = None,
     output_prefix: Optional[str] = None,
 ) -> dict:
     """
@@ -252,13 +252,13 @@ def run_status_tracking(
         logger.warning(f"[calculate_offer_status] log_to_db start failed: {e}")
     
     # Initialize storage if not provided
-    if storage is None:
-        storage = get_storage_from_env("silver", "merged")
+    if storage_silver_merged is None:
+        storage_silver_merged = get_storage_from_env("silver", "merged")
         logger.info(f"📂 Storage: silver/merged")
     
     # Get the two most recent parquet files
     logger.info("🔍 Searching for recent datasets...")
-    parquet_files = get_latest_parquet_files(storage, prefix="", limit=2)
+    parquet_files = get_latest_parquet_files(storage_silver_merged, prefix="", limit=2)
     
     if len(parquet_files) == 0:
         logger.error("❌ No parquet files found in storage")
@@ -320,8 +320,8 @@ def run_status_tracking(
     except Exception as e:
         logger.warning(f"[calculate_offer_status] log_to_db loading failed: {e}")
     
-    df_current = storage_tools.load_parquet_dataset(storage, current_file)
-    df_previous = storage_tools.load_parquet_dataset(storage, previous_file)
+    df_current = storage_tools.load_parquet_dataset(storage_silver_merged, current_file)
+    df_previous = storage_tools.load_parquet_dataset(storage_silver_merged, previous_file)
     
     if df_current is None:
         logger.error(f"❌ Failed to load current dataset: {current_file}")
@@ -374,7 +374,7 @@ def run_status_tracking(
     if output_prefix:
         output_key = f"{run_prefix}{output_prefix}.parquet"
     
-    success = storage_tools.save_parquet_dataset(storage, df_updated, output_key)
+    success = storage_tools.save_parquet_dataset(storage_silver_merged, df_updated, output_key)
     
     # Create run.json metadata file
     if success:
@@ -398,7 +398,7 @@ def run_status_tracking(
         }
         
         try:
-            storage.write_json(run_json_key, run_metadata)
+            storage_silver_merged.write_json(run_json_key, run_metadata)
             logger.info(f"   ℹ️ Metadata saved: {run_json_key}")
         except Exception as e:
             logger.warning(f"   ⚠️ Failed to save run.json metadata: {e}")
