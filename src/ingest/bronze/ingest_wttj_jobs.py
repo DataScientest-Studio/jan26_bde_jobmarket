@@ -60,8 +60,44 @@ def setup_logging() -> None:
         level=level,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    
+    # Configure thread trace logging if enabled
+    trace_enabled = _is_truthy(os.getenv("WTTJ_OPT_THREAD_TRACE_ENABLED", "0"))
+    trace_file = os.getenv(
+        "WTTJ_OPT_THREAD_TRACE_FILE",
+        "logs/ingestion/wttj_thread_trace.log",
+    ).strip()
+
+    if trace_enabled and trace_file:
+        trace_path = os.path.abspath(trace_file)
+        trace_dir = os.path.dirname(trace_path)
+        if trace_dir:
+            os.makedirs(trace_dir, exist_ok=True)
+
+        # Reset file handlers so each run starts with a clean trace file
+        for handler in list(thread_trace_logger.handlers):
+            if isinstance(handler, logging.FileHandler):
+                thread_trace_logger.removeHandler(handler)
+                handler.close()
+
+        file_handler = logging.FileHandler(trace_path, mode="w", encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+        )
+        thread_trace_logger.addHandler(file_handler)
+
+        thread_trace_logger.setLevel(logging.INFO)
+        thread_trace_logger.propagate = False
+        logger.info("Thread trace file logging enabled: %s", trace_path)
+
+
+def _is_truthy(value: str) -> bool:
+    """Helper to parse environment variable as boolean."""
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
 
 logger = logging.getLogger("wttj.ingest.bronze")
+thread_trace_logger = logging.getLogger("wttj.ingest.bronze.threadtrace")
 
 # ----------------------------
 # Sitemap handling
