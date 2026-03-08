@@ -86,7 +86,9 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     jobs_raw_keys = []
     start_time = time.time()
     for runid_folder in runid_folders:
-        segment_prefix = runid_prefix + runid_folder + "segment=jobs_raw/"
+        if("segment=jobs_raw" not in runid_folder):
+            continue
+        segment_prefix = runid_prefix + runid_folder 
         segment_keys = storage_bronze.list_keys(segment_prefix)
         jobs_raw_keys.extend([k for k in segment_keys if k.endswith(".jsonl")])
     try:
@@ -310,30 +312,54 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
         logger.warning(f"[normalize_wttj_jobs] log_to_db done failed: {e}")
     return NormalizeWTTJResult(job_id, status, dt, output_format, files, errors)
 
+def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> NormalizeWTTJResult:
+    """
+    Process only the latest date available in bronze that is not yet in silver.
+    This allows to run the normalization incrementally, for example on a daily basis, without reprocessing all historical data.
+    """
+    # Initialize storage if not provided
+    # Source storage : bronze files to normalize
+    storage_bronze_merged = get_storage_from_env("bronze", "welcometothejungle")
+    #  Destination storage : silver normalized files
+    storage_silver_merged = get_storage_from_env("silver", "welcometothejungle")
+
+    logger.info(f"📂 Storage: bronze")
+    # List all objects in the storage
+    prefix=""
+    # Get Immediate prefixes (simulate folders) under bronze
+    all_dt_bronze = list(storage_bronze_merged.list_prefixes(prefix))
+
+    dates_bronze = [v.replace('dt=', '').replace('/', '') for v in all_dt_bronze if 'dt=' in v]
+    sorted_dates_bronze = sorted(dates_bronze)
+
+    logger.info(f"📂 Storage: silver")
+    # List all objects in the storage
+    prefix=""
+    # Get Immediate prefixes (simulate folders) under silver/merged/
+    all_dt_silver = list(storage_silver_merged.list_prefixes(prefix))
+
+    dates_silver = [v.replace('dt=', '').replace('/', '') for v in all_dt_silver if 'dt=' in v  ]
+    sorted_dates_silver = sorted(dates_silver)
+
+    dt_to_process = [d for d in sorted_dates_bronze if d not in sorted_dates_silver]    
+    if(len(dt_to_process) == 0):
+        logger.info("✅ No new date to process. All dates in bronze are already in silver.")
+        return NormalizeWTTJResult(job_id="none", status="NO_NEW_DATA", dt=None, output_format=output_format, files=[], errors=0)
+
+    ret = NormalizeWTTJResult(job_id="incremental", status="RUNNING", dt=str(dt_to_process), output_format=output_format, files=[], errors=0)
+    for date in dt_to_process:
+        logger.info(f"📂 Date to process: {date}")
+        result = normalize_wttj_jobs(date , output_format=output_format)   
+        ret.files.extend(result.files) 
+        ret.errors += result.errors
+        print(f"normalize_wttj_jobs date processed ={date} result: job_id={result.job_id}, status={result.status}, files={result.files}, errors={result.errors}")
+
+    return ret
 # ----------------------------
 # Main (new / resume / incremental)
 # ----------------------------
 def main() -> None:
-    #dt = "2026-02-28"
-    #dt=""
-    # Initialize storage if not provided
-    storage_silver_merged = get_storage_from_env("bronze", "welcometothejungle")
-    logger.info(f"📂 Storage: silver/merged")
-    
-    # List all objects in the storage
-    prefix=""
-    # Get Immediate prefixes (simulate folders) under silver/merged/
-    all_dt = list(storage_silver_merged.list_prefixes(prefix))
-
-    dates = [v.replace('dt=', '').replace('/', '') for v in all_dt]
-    sorted_dates = sorted(dates)
-
-    dt=sorted_dates[-1] if sorted_dates else None
-    logger.info(f"📂 Latest dt found in silver/merged: {dt}")
-
-    result = normalize_wttj_jobs(dt, output_format="parquet")
-    print(f"normalize_wttj_jobs result: job_id={result.job_id}, status={result.status}, files={result.files}, errors={result.errors}")
-
+    normalize_wttj_jobs_incremental(output_format="parquet")
 
 if __name__ == "__main__":
     main()
