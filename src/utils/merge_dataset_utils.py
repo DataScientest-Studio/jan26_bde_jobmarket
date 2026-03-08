@@ -16,6 +16,7 @@ def process_wttj_file(storage, key: str) -> pd.DataFrame:
     Helper function for parallel processing.
     """
     try:
+        logger.info(f"✅ Add {key} in df loaded")
         return storage.read_parquet(key)
     except Exception as e:
         logger.error(f"   ❌ Erreur lecture {key}: {e}")
@@ -67,6 +68,8 @@ def read_wttj_parquet_file_to_df(storage, prefix: str) -> pd.DataFrame:
         try:
             df = storage.read_parquet(parquet_keys[0])
             dfs.append(df)
+            logger.info(f"✅ Add {parquet_keys[0]} in df loaded")
+
         except Exception as e:
             logger.error(f"   ❌ Error reading {parquet_keys[0]}: {e}")
     
