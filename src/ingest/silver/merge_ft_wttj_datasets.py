@@ -251,10 +251,14 @@ def normalize_ft_data(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=Silver_Datamodel.get_dataframe_columns())
     normalized_data = []
 
-    bar = tqdm.tqdm(df.iterrows(), total=len(df), desc="   Normalizing FT data", mininterval=0.5)
-    for _, row in bar:
+    total_rows = len(df)
+    bar = tqdm.tqdm(df.iterrows(), total=total_rows, desc="   Normalizing FT data", mininterval=0.5)
+    for processed_rows, (_, row) in enumerate(bar, 1):
+        elapsed = time.perf_counter() - start_time
+        remaining = ((total_rows - processed_rows) * (elapsed / processed_rows)) if processed_rows > 0 else 0
+        eta_str = time.strftime("%H:%M:%S", time.gmtime(max(remaining, 0)))
 
-        bar.set_postfix({"id": row.get("id", "N/A")})
+        bar.set_postfix({"id": row.get("id", "N/A"), "eta": eta_str})
 
         url = ""
         origine_offre = row.get("origineOffre", {})
