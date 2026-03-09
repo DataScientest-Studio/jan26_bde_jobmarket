@@ -4,6 +4,7 @@ services:
   postgres:
     image: postgres:15
     container_name: jobmarket-postgres
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -45,6 +46,7 @@ services:
   jupyter:
     build: .                          # pour utiliser le Dockerfile local
     container_name: jobmarket-jupyter
+    restart: unless-stopped    
     depends_on:
       - minio-init
     ports:
@@ -83,6 +85,12 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: jobmarket-api
+    restart: unless-stopped
+    logging:                        # Keep log to investigate crashes
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
     depends_on:
       - minio-init
       - postgres
