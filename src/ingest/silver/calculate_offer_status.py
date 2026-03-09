@@ -8,6 +8,7 @@
 import argparse
 import logging
 import pandas as pd
+import re
 import time
 import uuid
 from datetime import datetime
@@ -93,32 +94,40 @@ def calculate_offer_status(
     # Find new/reappeared offers (in new but not in old)
     new_keys_list = new_keys - old_keys
     logger.info(f"   New/reappeared offers: {len(new_keys_list):,}")
+
+    # Keep source-level key sets from the current dataset before enrichment with disappeared rows.
+    source_new_detected_keys = {
+        source: set(group["composite_key"])
+        for source, group in df_new_keyed.groupby("source")
+    }
     
     # =============================
     # Update statuses
     # =============================
     
-    # 1. Set all new offers to 'published'
-    df_new_keyed.loc[:, "status"] = "published"
-    df_new_keyed.loc[:, "unpublished_at"] = None
+    # 1. Initialize status columns if missing (don't overwrite existing values)
+    # df_new may already contain unpublished offers from previous iterations
+    if "status" not in df_new_keyed.columns or df_new_keyed["status"].isna().all():
+        df_new_keyed["status"] = "published"
+    else:
+        # Fill missing status values with 'published' (new offers detected in this run)
+        df_new_keyed["status"] = df_new_keyed["status"].fillna("published")
     
-    # 2. Mark disappeared offers as 'unpublished'
-    # Find rows in old dataset that disappeared
-    disappeared_rows = df_old_keyed[df_old_keyed["composite_key"].isin(disappeared_keys)]
+    if "unpublished_at" not in df_new_keyed.columns:
+        df_new_keyed["unpublished_at"] = None
     
-    if len(disappeared_rows) > 0:
-        for idx, row in disappeared_rows.iterrows():
-            # Find if this offer was previously unpublished (same source+id)
-            new_version = df_new_keyed[
-                (df_new_keyed["source"] == row["source"]) & 
-                (df_new_keyed["id"] == row["id"])
-            ]
-            
-            if len(new_version) == 0:
-                # Offer truly disappeared - but we don't modify old dataset, only track new
-                # This means: don't add disappeared offers back, they're truly gone
-                # Instead, we mark them for reference in stats
-                pass
+    # 2. Re-inject disappeared offers from old dataset as unpublished in current output
+    if disappeared_keys:
+        disappeared_rows = df_old_keyed[df_old_keyed["composite_key"].isin(disappeared_keys)].copy()
+        disappeared_rows.loc[:, "status"] = "unpublished"
+        disappeared_rows.loc[:, "unpublished_at"] = current_timestamp
+
+        df_new_keyed = pd.concat([df_new_keyed, disappeared_rows], ignore_index=True, sort=False)
+
+        logger.info(
+            f"   Processing disappeared offers: {len(disappeared_keys):,}/{len(disappeared_keys):,} (100.0%)"
+        )
+        logger.info(f"   Re-injected as unpublished: {len(disappeared_rows):,}")
     
     # 3. For offers appearing again (previously unpublished, now back)
     # Update their status to 'published'
@@ -135,24 +144,27 @@ def calculate_offer_status(
     # =============================
     stats = {}
     
-    for source in df_new["source"].unique():
+    all_sources = sorted(set(df_old_keyed["source"]).union(set(df_new_keyed["source"])))
+
+    for source in all_sources:
         source_new = df_new_keyed[df_new_keyed["source"] == source]
         source_old = df_old_keyed[df_old_keyed["source"] == source]
+        source_detected_keys = source_new_detected_keys.get(source, set())
         
-        # Count by status in new dataset
+        # Count by status in output dataset (current + re-injected unpublished)
         published_count = len(source_new[source_new["status"] == "published"])
+        unpublished_count = len(source_new[source_new["status"] == "unpublished"])
         
         # Count disappeared from this source
         source_old_keys = set(source_old["composite_key"])
-        source_new_keys = set(source_new["composite_key"])
-        disappeared_from_source = len(source_old_keys - source_new_keys)
+        disappeared_from_source = len(source_old_keys - source_detected_keys)
         
         # Count newly appeared in this source
-        appeared_in_source = len(source_new_keys - source_old_keys)
+        appeared_in_source = len(source_detected_keys - source_old_keys)
         
         stats[source] = {
             "published": published_count,
-            "unpublished": disappeared_from_source,
+            "unpublished": unpublished_count,
             "appeared": appeared_in_source,
             "total": len(source_new)
         }
@@ -180,7 +192,7 @@ def calculate_offer_status(
 
 def get_latest_parquet_files(storage: Storage, prefix: str = "", limit: int = 2) -> List[str]:
     """
-    Get the latest parquet files from storage, sorted by timestamp (most recent first).
+    Get parquet files from storage, sorted by merged_dt in filename (ascending).
     
     Args:
         storage: Storage instance
@@ -188,7 +200,7 @@ def get_latest_parquet_files(storage: Storage, prefix: str = "", limit: int = 2)
         limit: Maximum number of files to return (default: 2 for comparison)
     
     Returns:
-        List of parquet file keys, sorted by timestamp descending
+        List of parquet file keys sorted by merged_dt ascending.
     """
     try:
         # List all objects in the storage
@@ -196,15 +208,32 @@ def get_latest_parquet_files(storage: Storage, prefix: str = "", limit: int = 2)
 
         # Filter parquet files only
         parquet_files = [obj for obj in all_objects if obj.endswith('.parquet')]
-        
-        # Sort by filename (contains timestamp in format YYYYMMDD_HHMMSS)
-        # Most recent first
-        parquet_files.sort(reverse=True)
+
+        # Sort by merged_dt=YYYY-MM-DD from the new naming convention:
+        # merged_dt=2026-03-07_ft_dt=2026-03-07_wttj_dt=2026-03-07.parquet
+        # Fallback to first generic dt=... for legacy files.
+        def _dt_sort_key(filename: str) -> datetime:
+            merged_match = re.search(r"merged_dt=(\d{4}-\d{2}-\d{2})", filename)
+            dt_str = merged_match.group(1) if merged_match else None
+
+            if dt_str is None:
+                generic_match = re.search(r"dt=(\d{4}-\d{2}-\d{2})", filename)
+                dt_str = generic_match.group(1) if generic_match else None
+
+            if dt_str is None:
+                return datetime.min
+
+            try:
+                return datetime.strptime(dt_str, "%Y-%m-%d")
+            except ValueError:
+                return datetime.min
+
+        parquet_files.sort(key=_dt_sort_key)
         
         logger.info(f"📋 Found {len(parquet_files)} parquet file(s) in storage")
         
-        # Return the most recent N files
-        return parquet_files[:limit]
+        # Return the latest N files while preserving ascending order.
+        return parquet_files[-limit:]
         
     except Exception as e:
         logger.error(f"❌ Error listing parquet files: {e}")
@@ -299,9 +328,9 @@ def run_status_tracking(
             "status_stats": {}
         }
     
-    # Load the two most recent datasets
-    current_file = parquet_files[0]  # Most recent
-    previous_file = parquet_files[1]  # Second most recent
+    # Load the two most recent datasets from an ascending list
+    current_file = parquet_files[-1]  # Most recent
+    previous_file = parquet_files[-2]  # Previous
     
     logger.info(f"📥 Loading datasets for comparison:")
     logger.info(f"   Current (new):  {current_file}")
@@ -339,7 +368,18 @@ def run_status_tracking(
     # Calculate status updates
     logger.info("")
     logger.info("🔄 Calculating status updates...")
-    current_timestamp = datetime.utcnow()
+    
+    # Extract dataset date from current_file name (merged_dt=YYYY-MM-DD)
+    # Use this date as reference for unpublished_at instead of execution date
+    merged_dt_match = re.search(r"merged_dt=(\d{4}-\d{2}-\d{2})", current_file)
+    if merged_dt_match:
+        dataset_date_str = merged_dt_match.group(1)
+        current_timestamp = datetime.strptime(dataset_date_str, "%Y-%m-%d")
+        logger.info(f"   Using dataset date as reference: {dataset_date_str}")
+    else:
+        # Fallback to execution time if merged_dt not found
+        current_timestamp = datetime.utcnow()
+        logger.warning(f"   Could not extract merged_dt from filename, using current time")
     
     try:
         log_to_db(
