@@ -27,7 +27,7 @@ from src.config.env import load_project_env
 load_project_env()  # safe à rappeler (idempotent)
 
 # Classes
-from src.ingest.data_models.silver_datamodel_class import silver_wttj, NormalizeWTTJResult
+from src.ingest.data_models.silver_datamodel_class import NormalizeWTTJResult
 # Utils
 from src.utils.wttj_utils import get_field_or_default, get_json_field_from_record, _fix_double_encoded_dict
 from src.utils.text_processing import clean_html, normalize_list_to_strings
@@ -182,36 +182,34 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                     rome_api_calls += 1
                     profession = _normalize_profession_value(get_field_or_default(record, 'profession'))
 
-                    wttj =silver_wttj(
-                        reference=job_data.get("reference"),
-                        name=name,
-                        description=description,
-                        profile=clean_html(job_data.get("profile")),
-                        salary_min=job_data.get("salary_min"),
-                        salary_max=job_data.get("salary_max"),
-                        salary_currency=job_data.get("salary_currency"),
-                        education_level=job_data.get("education_level"),
-                        company_summary=job_data.get("company_summary"),
-                        company_description=job_data.get("company_description"),
-                        updated_at=job_data.get("updated_at"),
-                        published_at=job_data.get("published_at"),
-                        archived_at=job_data.get("archived_at"),
-                        contract_duration_min=job_data.get("contract_duration_min"),
-                        remote=job_data.get("remote"),
-                        ats=job_data.get("ats"),
-                        contract_duration_max=job_data.get("contract_duration_max"),
-                        experience_level=job_data.get("experience_level"),
-                        contract_type=job_data.get("contract_type"),
-                        urls=urls_list,
-                        canonical_url=canonical_url,
-                        skills=normalize_list_to_strings(job_data.get("skills", [])),
-                        key_missions=normalize_list_to_strings(job_data.get("key_missions", [])),
-                        offices=normalize_list_to_strings(job_data.get("offices", [])),
-                        sectors=normalize_list_to_strings(get_field_or_default(record, 'sectors', [])),
-                        profession=profession
-                        )
-                    # vars: convertit les champs de la class python en dict, prêt pour DataFrame ou JSON
-                    row = vars(wttj)
+                    row = {
+                        "reference": job_data.get("reference"),
+                        "name": name,
+                        "description": description,
+                        "profile": clean_html(job_data.get("profile")),
+                        "salary_min": job_data.get("salary_min"),
+                        "salary_max": job_data.get("salary_max"),
+                        "salary_currency": job_data.get("salary_currency"),
+                        "education_level": job_data.get("education_level"),
+                        "company_summary": job_data.get("company_summary"),
+                        "company_description": job_data.get("company_description"),
+                        "updated_at": job_data.get("updated_at"),
+                        "published_at": job_data.get("published_at"),
+                        "archived_at": job_data.get("archived_at"),
+                        "contract_duration_min": job_data.get("contract_duration_min"),
+                        "remote": job_data.get("remote"),
+                        "ats": job_data.get("ats"),
+                        "contract_duration_max": job_data.get("contract_duration_max"),
+                        "experience_level": job_data.get("experience_level"),
+                        "contract_type": job_data.get("contract_type"),
+                        "urls": urls_list,
+                        "canonical_url": canonical_url,
+                        "skills": normalize_list_to_strings(job_data.get("skills", [])),
+                        "key_missions": normalize_list_to_strings(job_data.get("key_missions", [])),
+                        "offices": normalize_list_to_strings(job_data.get("offices", [])),
+                        "sectors": normalize_list_to_strings(get_field_or_default(record, 'sectors', [])),
+                        "profession": profession,
+                    }
                     row["rome_code"] = rome_code
                     row["rome_label"] = rome_label
                     data.append(row)
