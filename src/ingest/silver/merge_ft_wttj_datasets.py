@@ -550,19 +550,15 @@ def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "par
     Returns:
         Output key where data was saved
     """
+    dt_current = datetime.now().strftime("%Y-%m-%d")
+
     if format == "parquet":
-        if dt_ft and dt_wttj:
-            output_key = f"merged_ft_dt={dt_ft}_wttj_dt={dt_wttj}.parquet"
-        else:
-            output_key = "merged_ft_wttj.parquet"
+        output_key = f"merged_dt={dt_current}_ft_dt={dt_ft}_wttj_dt={dt_wttj}.parquet"
         logger.info(f"💾 Sauvegarde Parquet: {output_key}")
         storage.write_parquet(output_key, df)
         
     elif format == "jsonl":
-        if dt_ft and dt_wttj:
-            output_key = f"merged_ft_dt={dt_ft}_wttj_dt={dt_wttj}.jsonl"
-        else:
-            output_key = "merged_ft_wttj.jsonl"
+        output_key = f"merged_dt={dt_current}_ft_dt={dt_ft}_wttj_dt={dt_wttj}.jsonl"
         logger.info(f"💾 Save JSONL: {output_key}")
         
         # Convert to JSONL
@@ -570,10 +566,7 @@ def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "par
         storage.put_object(output_key, jsonl_data.encode('utf-8'))
         
     elif format == "csv":
-        if dt_ft and dt_wttj:
-            output_key = f"merged_ft_dt={dt_ft}_wttj_dt={dt_wttj}.csv"
-        else:
-            output_key = "merged_ft_wttj.csv"
+        output_key = f"merged_dt={dt_current}_ft_dt={dt_ft}_wttj_dt={dt_wttj}.csv"
         logger.info(f"💾 Save CSV: {output_key}")
         
         # Convert lists to JSON strings for CSV
@@ -684,7 +677,19 @@ def merge_ft_wttj_datasets(
     if progress_callback:
         progress_callback("merging", "Fusion et déduplication...")
     df_merged = merge_and_deduplicate(df_ft, df_wttj)
-    
+
+    # =======================================
+    # Apply normalization to mergeded dataset
+    # =======================================
+    df_merged = merge_utils.normalize_contracts(df_merged, merge_utils.PATTERNS_CONTRACT_NORMALIZE)
+    # Create composite experience column for normalization
+    # TODO : change column name in source
+    df_merged['experience_source_composite'] = df_merged.apply(merge_utils.get_experience_col, axis=1)
+
+    # Normalize experience levels using the composite column
+    df_merged = merge_utils.normalize_experience(df_merged,'experience_source_composite')
+    # =======================================
+
     # Extract dt from prefixes for filename
     dt_ft_match = re.search(r'dt=([0-9\-]+)', ft_prefix)
     dt_wttj_match = re.search(r'dt=([0-9\-]+)', wttj_prefix)
