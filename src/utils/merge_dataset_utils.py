@@ -8,7 +8,113 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Mapping des patterns => type normalisé
+PATTERNS_CONTRACT_NORMALIZE = [
+    (r'(?i)cdi',                'CDI'),
+    (r'(?i)contrat à durée indéterminée',                'CDD'),
+    (r'(?i)cdd',                'CDD'),
+    (r'(?i)contrat à durée déterminée',                'CDD'),
+    (r'(?i)profession\s+lib',   'Profession libérale'),
+    (r'(?i)intér?im',           'Intérim'),
+    (r'(?i)saisonnier',           'Saisonnier'),
+    (r'(?i)profession commerciale',     'Profession commerciale'),
+    (r'(?i)franchise',     'Franchise')    
+]
+
+def normalize_contracts(df, patterns):
+    """
+    Normalise les types de contrat :
+    - Extrait le type principal (CDI, CDD, Intérim, etc.)
+    - Extrait le détail (durée, précision)
+    - Stocke dans contract_normalized et contract_detail
+    """
+    def extract_type(value):
+        if pd.isna(value):
+            return 'Inconnu'
+        for pattern, label in patterns:
+            if re.search(pattern, str(value)):
+                return label
+        return str(value)  # garder la valeur originale si pas de match
+
+    def extract_detail(value):
+        if pd.isna(value):
+            return None
+        # Supprimer le pattern trouvé et retourner le reste
+        remaining = str(value)
+        for pattern, label in patterns:
+            remaining = re.sub(pattern, '', remaining).strip()
+        # Nettoyer les séparateurs résiduels (-, :, espaces)
+        remaining = re.sub(r'^[\s\-:]+|[\s\-:]+$', '', remaining)
+        return remaining if remaining else None
+    
+    df = df.copy()
+    df['contract_normalized'] = df['contract_type'].apply(extract_type)
+    df['contract_detail']     = df['contract_type'].apply(extract_detail)
+    
+    return df
+
+
+
+# Définition des tranches d'expérience avec leurs indices
+EXPERIENCE_LEVELS = [
+    (0, 'Débutant',    [r'(?i)débutant', r'(?i)0 an', r'(?i)sans expérience']),
+    (1, '0-1 an',      [r'(?i)^1 an', r'(?i)^6 mois', r'(?i)^1 mois', r'(?i)^3 mois', r'(?i)less_than_6_months', r'(?i)6_months_to_1_year']),
+    (2, '1-2 ans',     [r'(?i)^2 an', r'(?i)1_to_2_years']),
+    (3, '2-3 ans',     [r'(?i)^3 an', r'(?i)^24 mois', r'(?i)2_to_3_years' ]),
+    (4, '3-5 ans',     [r'(?i)^4 an', r'(?i)^5 an', r'(?i)4_to_5_years', r'(?i)3_to_4_years']),
+    (5, '5-10 ans',    [r'(?i)^6 an', r'(?i)^7 an', r'(?i)^8 an', r'(?i)^9 an', r'(?i)^10 an', r'(?i)5_to_7_years', r'(?i)7_to_10_years']),
+    (6, '10+ ans',     [r'(?i)^1[1-9] an', r'(?i)^[2-9][0-9] an', r'(?i)10_to_15_years', r'(?i)more_than_15_years']),
+    (-1, 'Non précisé', [r'(?i)expérience exigée', r'(?i)expérience souhaitée']),
+   
+]
+
+def normalize_experience(df, experience_col):
+    """
+    Normalise les niveaux d'expérience :
+    - experience_normalized : label lisible (ex: '0-1 an')
+    - experience_index      : indice numérique (ex: 1) pour trier/comparer
+    - experience_detail     : valeur originale nettoyée
+    """
+
+    def extract_experience(value):
+        if pd.isna(value):
+            #To DEBUG
+            return -1, 'NAN', None
+            #return -1, 'Non précisé', None
+        
+        str_value = str(value).strip()
+        
+        for index, label, patterns in EXPERIENCE_LEVELS:
+            for pattern in patterns:
+                if re.search(pattern, str_value):
+                    # Détail = valeur originale
+                    return index, label, str_value
+        
+        #return -1, 'Non précisé', str_value
+        # To debug
+        return -1, value, str_value
+    
+
+    results = df[experience_col].apply(extract_experience)
+    
+    df = df.copy()
+    df['experience_index']      = results.apply(lambda x: x[0])
+    df['experience_normalized'] = results.apply(lambda x: x[1])
+    df['experience_detail']     = results.apply(lambda x: x[2])
+    
+    return df
+
+def get_experience_col(row):
+    if row['source'] == 'FT':
+        return row['experience_description']
+    elif row['source'] == 'WTTJ':
+        return row['experience_level']
+    else:
+        return None 
+
 
 def process_wttj_file(storage, key: str) -> pd.DataFrame:
     """
@@ -170,7 +276,14 @@ def print_statistics(df: pd.DataFrame) -> None:
     for contract, count in contract_counts.items():
         pct = count / len(df) * 100
         print(f"   {contract}: {count:,} ({pct:.1f}%)")
-    
+
+    # Contract types normalized
+    print(f"\n📝 CONTRACT TYPES NORMALIZED")
+    contract_counts = df['contract_normalized'].value_counts().head(5)
+    for contract, count in contract_counts.items():
+        pct = count / len(df) * 100
+        print(f"   {contract}: {count:,} ({pct:.1f}%)")
+
     # Experience levels
     print(f"\n💼 EXPERIENCE LEVELS")
     exp_counts = df['experience_level'].value_counts().head(5)
@@ -178,6 +291,13 @@ def print_statistics(df: pd.DataFrame) -> None:
         pct = count / len(df) * 100
         print(f"   {exp}: {count:,} ({pct:.1f}%)")
     
+    # Experience levels
+    print(f"\n💼 EXPERIENCE LEVELS NORMALIZED ")
+    exp_counts = df['experience_normalized'].value_counts().head(5)
+    for exp, count in exp_counts.items():
+        pct = count / len(df) * 100
+        print(f"   {exp}: {count:,} ({pct:.1f}%)")
+
     # Existing skills
     skills = df['skills'].apply(lambda x: len(x) > 0 if isinstance(x, list) else False).sum()
     print(f"\n🎓 SKILLS")
