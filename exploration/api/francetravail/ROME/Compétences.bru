@@ -1,0 +1,20 @@
+meta {
+  name: Compétences
+  type: http
+  seq: 3
+}
+
+get {
+  url: https://api.francetravail.io/partenaire/rome-competences/v1/competences/competence/109979
+  body: none
+  auth: none
+}
+
+params:query {
+  ~champs: @competencedetaillee(riasecmineur,macrocompetence(libelle,transferable,@macrosavoiretreprofessionnel(qualiteprofessionnelle),souscategorie,code,riasecmineur,codearborescence,objectif(libelle,enjeu(libelle,code,codearborescence,domainecompetence(libelle,code,codearborescence)),code,codearborescence),codeogr,maturite,riasecmajeur),riasecmajeur)
+}
+
+headers {
+  Authorization: Bearer {{ACCESS_TOKEN}}
+  Accept: application/json
+}
