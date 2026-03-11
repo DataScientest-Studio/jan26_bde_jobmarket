@@ -9,7 +9,7 @@ et réponses des différents endpoints de l'API.
 from .predict import PredictRequest, PredictResponse
 from .ingest import IngestResponse, IngestOffersResponse, IngestWTTJResponse, CollectSitemapsResponse, IngestWTTJOptResponse
 from .data import MergeDatasetResponse
-from .normalize import NormalizeWTTJResponse
+from .normalize import NormalizeWTTJResponse, NormalizeFTResponse
 from .logging import JSONOnlyFilter
 
 __all__ = [
@@ -27,5 +27,6 @@ __all__ = [
     # Data processing models
     'MergeDatasetResponse',
     'NormalizeWTTJResponse',
+    'NormalizeFTResponse',
     'JSONOnlyFilter',
 ]

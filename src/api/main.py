@@ -23,6 +23,7 @@ MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
 TOP_K = int(os.getenv("TOP_K", "5"))
 
 import uuid
+import time
 import pandas as pd
 import logging
 import json
@@ -38,6 +39,7 @@ from src.models.predict_model import build_text_payload, load_artifacts, predict
 
 # Imports applicatifs
 from src.ingest.silver.normalize_wttj_jobs import normalize_wttj_jobs
+from src.ingest.silver.normalize_ft_jobs import normalize_ft_jobs
 from src.ingest.bronze.ingest_france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.ingest_france_travail_jobs import ingest_france_travail_offers
 from src.ingest.bronze.ingest_wttj_jobs import ingest_welcome_to_the_jungle
@@ -58,6 +60,7 @@ from src.api.models import (
     IngestWTTJOptResponse,
     MergeDatasetResponse,
     NormalizeWTTJResponse,
+    NormalizeFTResponse,
     JSONOnlyFilter
 )
 
@@ -102,6 +105,120 @@ def normalize_wttj_jobs_task(dt: str, output_format: str = "parquet"):
         errors=result.errors
     )
 
+
+def normalize_ft_jobs_task(dt: str, output_format: str = "parquet"):
+    result = normalize_ft_jobs(dt, output_format)
+    return NormalizeFTResponse(
+        job_id=result.job_id,
+        status=result.status,
+        dt=result.dt,
+        format=result.format,
+        files=result.files,
+        errors=result.errors,
+    )
+
+
+def run_normalize_wttj_task(task_id: str, dt: Optional[str], output_format: str):
+    """Wrapper for WTTJ normalization with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        result = normalize_wttj_jobs_task(dt, output_format)
+        duration_sec = time.monotonic() - start_monotonic
+        if result.status == STATUS_SUCCESS:
+            result_payload = {
+                "dt": result.dt,
+                "format": result.format,
+                "files": result.files,
+                "errors": result.errors,
+                "duration_sec": round(duration_sec, 2),
+            }
+            set_task(
+                task_id,
+                progress_pct=100,
+                message="Normalisation WTTJ terminee",
+                records_count=len(result.files),
+                errors_count=result.errors,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+        else:
+            error_text = f"Echec normalisation WTTJ: {result.status}"
+            set_task(
+                task_id,
+                message=error_text,
+                status=STATUS_FAILED,
+                completed_at=datetime.now(timezone.utc),
+                errors_count=result.errors,
+                error=error_text,
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+    except Exception as e:
+        error_text = str(e)
+        set_task(
+            task_id,
+            message=f"Erreur: {error_text}",
+            status=STATUS_FAILED,
+            completed_at=datetime.now(timezone.utc),
+            error=error_text,
+        )
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
+def run_normalize_ft_task(task_id: str, dt: Optional[str], output_format: str):
+    """Wrapper for FT normalization with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        result = normalize_ft_jobs_task(dt, output_format)
+        duration_sec = time.monotonic() - start_monotonic
+        if result.status == STATUS_SUCCESS:
+            result_payload = {
+                "dt": result.dt,
+                "format": result.format,
+                "files": result.files,
+                "errors": result.errors,
+                "duration_sec": round(duration_sec, 2),
+            }
+            set_task(
+                task_id,
+                progress_pct=100,
+                message="Normalisation FT terminee",
+                records_count=len(result.files),
+                errors_count=result.errors,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+        else:
+            error_text = f"Echec normalisation FT: {result.status}"
+            set_task(
+                task_id,
+                message=error_text,
+                status=STATUS_FAILED,
+                completed_at=datetime.now(timezone.utc),
+                errors_count=result.errors,
+                error=error_text,
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+    except Exception as e:
+        error_text = str(e)
+        set_task(
+            task_id,
+            message=f"Erreur: {error_text}",
+            status=STATUS_FAILED,
+            completed_at=datetime.now(timezone.utc),
+            error=error_text,
+        )
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
 @app.post(
     "/data/normalize-wttj-jobs",
     response_model=NormalizeWTTJResponse,
@@ -116,13 +233,64 @@ async def normalize_wttj_jobs_endpoint(
     background: bool = Query(default=True, description="Exécuter la tâche en arrière-plan")
 ):
     if background:
-        job_id = f"wttj-normalize-{dt}-{uuid.uuid4().hex[:8]}"
-        def task():
-            normalize_wttj_jobs_task(dt, output_format)
-        background_tasks.add_task(task)
-        return NormalizeWTTJResponse(job_id=job_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0)
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "normalize_wttj_jobs",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Normalisation WTTJ en cours (format: {output_format})...",
+            "params": {"dt": dt, "output_format": output_format},
+        }
+        if job_store.enabled:
+            job_store.create(
+                run_id=task_id,
+                job_type="data",
+                source="normalize_wttj_jobs",
+                params={"background": True, "dt": dt, "output_format": output_format},
+                message=f"Normalisation WTTJ en cours (format: {output_format})...",
+            )
+        background_tasks.add_task(run_normalize_wttj_task, task_id, dt, output_format)
+        return NormalizeWTTJResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0)
     else:
         return normalize_wttj_jobs_task(dt, output_format)
+
+
+@app.post(
+    "/data/normalize-ft-jobs",
+    response_model=NormalizeFTResponse,
+    tags=["Data Processing"],
+    summary="Normalise les jobs FT bronze en silver",
+    description="Lit tous les jobs_raw FT du bronze pour un dt donne, applique la normalisation source et ecrit le resultat canonique dans la couche silver."
+)
+async def normalize_ft_jobs_endpoint(
+    background_tasks: BackgroundTasks,
+    dt: Optional[str] = Query(None, description="Date d'extraction dans la couche bronze au format YYYY-MM-DD (ex: 2026-02-28). Si non fourni ou 'latest', prend le dernier dt disponible dans le storage."),
+    output_format: str = Query(default="parquet", description="Format de sortie: parquet (par defaut), jsonl, ou csv"),
+    background: bool = Query(default=True, description="Executer la tache en arriere-plan")
+):
+    if background:
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "normalize_ft_jobs",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Normalisation FT en cours (format: {output_format})...",
+            "params": {"dt": dt, "output_format": output_format},
+        }
+        if job_store.enabled:
+            job_store.create(
+                run_id=task_id,
+                job_type="data",
+                source="normalize_ft_jobs",
+                params={"background": True, "dt": dt, "output_format": output_format},
+                message=f"Normalisation FT en cours (format: {output_format})...",
+            )
+        background_tasks.add_task(run_normalize_ft_task, task_id, dt, output_format)
+        return NormalizeFTResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0)
+    else:
+        return normalize_ft_jobs_task(dt, output_format)
 
 # Configure logging with rotation and optional Grafana support
 def setup_logging():
@@ -1557,7 +1725,9 @@ Utile pour découvrir les endpoints de traitement et monitorer les tâches en co
     
     # Filtrer les tâches de data processing
     data_operations = [
-        "merge_datasets"
+        "merge_datasets",
+        "normalize_wttj_jobs",
+        "normalize_ft_jobs",
     ]
     
     return {
@@ -1575,6 +1745,24 @@ Utile pour découvrir les endpoints de traitement et monitorer les tâches en co
             if task_info.get("operation") in data_operations
         ],
         "available_operations": [
+            {
+                "endpoint": "POST /data/normalize-ft-jobs",
+                "description": "Normalisation FT bronze vers silver (schema canonique)",
+                "params": [
+                    "background (bool, optionnel)",
+                    "dt (str, optionnel: YYYY-MM-DD/latest)",
+                    "output_format (str, optionnel: parquet/jsonl/csv)"
+                ]
+            },
+            {
+                "endpoint": "POST /data/normalize-wttj-jobs",
+                "description": "Normalisation WTTJ bronze vers silver (avec enrichissement ROME)",
+                "params": [
+                    "background (bool, optionnel)",
+                    "dt (str, optionnel: YYYY-MM-DD/latest)",
+                    "output_format (str, optionnel: parquet/jsonl/csv)"
+                ]
+            },
             {
                 "endpoint": "POST /data/merge-datasets",
                 "description": "Fusion des datasets FT et WTTJ avec ROME codes",
@@ -2284,8 +2472,8 @@ Utilise un crawler pour récupérer les données complètes.
     summary="Fusionner les datasets FT et WTTJ",
     description="""Déclenche la fusion des datasets France Travail et Welcome to the Jungle.
 
-Cette opération lit les données des couches Bronze (FT) et Silver (WTTJ), les normalise,
-les fusionne et les déduplique pour créer un dataset d'entraînement unifié.
+Cette operation lit les donnees deja normalisees en Silver (FT et WTTJ),
+les fusionne et les deduplique pour creer un dataset d'entrainement unifie.
 
 **Modes d'exécution:**
 
@@ -2308,8 +2496,8 @@ Si les préfixes ne sont pas spécifiés, l'API détectera automatiquement les d
 # Fusion complète en arrière-plan avec détection auto
 curl -X POST "http://localhost:8000/data/merge-datasets?background=true"
 
-# Fusion avec préfixes spécifiques
-curl -X POST "http://localhost:8000/data/merge-datasets?ft_prefix=bronze/offers&wttj_prefix=silver/jobs"
+# Fusion avec prefixes specifiques
+curl -X POST "http://localhost:8000/data/merge-datasets?ft_prefix=dt=2026-02-28/segment=jobs&wttj_prefix=dt=2026-02-28/segment=jobs"
 
 # Fusion avec format de sortie CSV
 curl -X POST "http://localhost:8000/data/merge-datasets?output_format=csv"
@@ -2326,17 +2514,18 @@ async def merge_datasets_endpoint(
 ):
     """Fusion des datasets France Travail et Welcome to the Jungle.
 
-Lit les données des couches Bronze (FT) et Silver (WTTJ), normalise selon
-le modèle Silver_Datamodel, fusionne et déduplique pour créer un dataset unifié.
+Lit les donnees des couches Silver (FT et WTTJ), harmonise le schema,
+fusionne et deduplique pour creer un dataset unifie.
 
 **Étapes:**
 
 1. Détection automatique des préfixes si non spécifiés
-2. Lecture et normalisation des données FT Bronze
-3. Lecture et normalisation des données WTTJ Silver
-4. Fusion et déduplication par URL
-5. Calcul des statistiques
-6. Sauvegarde du dataset fusionné
+2. Lecture des donnees FT Silver
+3. Lecture des donnees WTTJ Silver
+4. Harmonisation legere du schema canonique
+5. Fusion et deduplication par URL
+6. Calcul des statistiques
+7. Sauvegarde du dataset fusionne
 """
     logger.info(f"Requête de fusion datasets reçue (background={background}, format={output_format})")
     

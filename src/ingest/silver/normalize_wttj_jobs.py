@@ -1,19 +1,14 @@
-""" 
-==============
-Normalize WTTJ Jobs
-==============
+"""Normalize WTTJ bronze offers into canonical silver records.
 
-Parse bronze files from Welcome to the Jungle, clean and normalize data, enrich with ROME code prediction, 
-and write to silver layer.
+Responsibilities of this file:
+- Source-specific normalization for Welcome to the Jungle (bronze -> silver).
+- HTML/text cleanup, list normalization, and basic type harmonization.
+- WTTJ-specific enrichment (ROME prediction) during source normalization.
+- Output of canonical `Silver_Datamodel`-compatible rows under `dt=.../segment=jobs`.
 
-Conserve the same directory structure (dt=.../segment=jobs) but with cleaned data and new format (parquet/jsonl/csv).
-
-Arguments:
-- dt: date of the data to process (format YYYY-MM-DD) in bronze layer
-- output_format: parquet (default), jsonl, or csv        
-
-Method is expose in a CLI entry point (main) and can be called by API in order to process data programmatically.
-For example with airflow or any scheduler.
+Out of scope for this file:
+- Cross-source deduplication (FT vs WTTJ).
+- Cross-source harmonization rules for merged datasets.
 """
 from __future__ import annotations
 import os
@@ -27,10 +22,11 @@ from src.config.env import load_project_env
 load_project_env()  # safe à rappeler (idempotent)
 
 # Classes
-from src.ingest.data_models.silver_datamodel_class import silver_wttj, NormalizeWTTJResult
+from src.ingest.data_models.silver_datamodel_class import NormalizeResult, Silver_Datamodel
 # Utils
 from src.utils.wttj_utils import get_field_or_default, get_json_field_from_record, _fix_double_encoded_dict
-from src.utils.text_processing import clean_html, normalize_list_to_strings
+from src.utils.text_processing import clean_html, normalize_list_to_strings, normalize_text
+from src.utils.normalization_helpers import safe_str_to_datetime, safe_str_to_float, write_dataframe_with_format
 from src.utils.storage_tools import get_last_dt_from_storage
 from src.utils.log_to_db import log_to_db
 from src.utils.rome import get_rome_code_from_ml_prediction_via_api
@@ -65,7 +61,7 @@ def _normalize_profession_value(value):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
 
-def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTTJResult:
+def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeResult:
     job_id = f"wttj-normalize-{dt}-{uuid.uuid4().hex[:8]}"
     status = "RUNNING"
     files: List[str] = []
@@ -79,18 +75,29 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     if( dt is None or dt == "" or dt == "latest"):
         dt = get_last_dt_from_storage(storage_bronze, "")
 
-    # Prefix for runid folders: dt=2026-02-28/runid=.../segment=jobs_raw/*.jsonl
-    runid_prefix = f"dt={dt}/"
-    runid_folders = storage_bronze.list_prefixes(runid_prefix)
-    # Process each runid folder to get jobs_raw jsonl files
-    jobs_raw_keys = []
+    # Efficient key discovery:
+    # 1) list run_id folders under dt
+    # 2) inside each run_id, list only segment=jobs_raw
+    # 3) list JSONL files only in those segments
+    dt_prefix = f"dt={dt}/"
     start_time = time.time()
+    jobs_raw_keys = []
+
+
+    runid_folders = storage_bronze.list_prefixes(dt_prefix)
     for runid_folder in runid_folders:
-        if("segment=jobs_raw" not in runid_folder):
+        if not (runid_folder.startswith("run_id=") or runid_folder.startswith("runid=")):
             continue
-        segment_prefix = runid_prefix + runid_folder 
-        segment_keys = storage_bronze.list_keys(segment_prefix)
-        jobs_raw_keys.extend([k for k in segment_keys if k.endswith(".jsonl")])
+
+        runid_prefix = dt_prefix + runid_folder
+        segment_folders = storage_bronze.list_prefixes(runid_prefix)
+        for segment_folder in segment_folders:
+            if not segment_folder.startswith("segment=jobs_raw"):
+                continue
+
+            segment_prefix = runid_prefix + segment_folder
+            segment_keys = storage_bronze.list_keys(segment_prefix)
+            jobs_raw_keys.extend([k for k in segment_keys if k.endswith(".jsonl")])
     try:
         log_to_db(
             endpoint="normalize_wttj_jobs",
@@ -140,14 +147,54 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                 bytes_processed += len(line_bytes) + 1
                 if line_count % 500 == 0:
                     elapsed_file = time.time() - file_start_time
+                    # Estimate global ETA continuously using current file progress (bytes-based when available).
+                    elapsed_global_now = time.time() - global_start_time
+                    if content_length and content_length > 0:
+                        current_file_progress = min(bytes_processed / content_length, 1.0)
+                    else:
+                        current_file_progress = 0.0
+                    processed_equivalent_files = processed_before_current + current_file_progress
+                    if processed_equivalent_files > 0 and elapsed_global_now > 0:
+                        avg_per_equiv_file = elapsed_global_now / processed_equivalent_files
+                        remaining_equiv_files = max(total_files - processed_equivalent_files, 0)
+                        global_eta_seconds_now = remaining_equiv_files * avg_per_equiv_file
+                    else:
+                        global_eta_seconds_now = global_remaining
+                    global_eta_lines_str = time_helpers.format_eta(global_eta_seconds_now)
+
                     if content_length and content_length > 0 and bytes_processed > 0 and elapsed_file > 0:
                         bytes_per_sec = bytes_processed / elapsed_file
                         remaining_bytes = max(content_length - bytes_processed, 0)
                         line_eta_seconds = remaining_bytes / bytes_per_sec if bytes_per_sec > 0 else 0
                         line_eta_str = time_helpers.format_eta(line_eta_seconds)
-                        logger.info(f"    └─ {line_count} lines processed | ETA lines: {line_eta_str}")
+                        progress_message = (
+                            f"{line_count} lines processed | ETA lines: {line_eta_str} | Global ETA: {global_eta_lines_str}"
+                        )
+                        logger.info(f"    └─ {progress_message}")
                     else:
-                        logger.info(f"    └─ {line_count} lines processed | ETA lines: N/A")
+                        line_eta_str = "N/A"
+                        progress_message = (
+                            f"{line_count} lines processed | ETA lines: {line_eta_str} | Global ETA: {global_eta_lines_str}"
+                        )
+                        logger.info(f"    └─ {progress_message}")
+
+                    try:
+                        log_to_db(
+                            endpoint="normalize_wttj_jobs",
+                            level="INFO",
+                            message=progress_message,
+                            job_id=job_id,
+                            dt=dt,
+                            output_format=output_format,
+                            file=key,
+                            files_processed=file_counter,
+                            line_count=line_count,
+                            line_eta=line_eta_str,
+                            global_eta=global_eta_lines_str,
+                            status="RUNNING",
+                        )
+                    except Exception as db_e:
+                        logger.warning(f"[normalize_wttj_jobs] log_to_db line progress failed: {db_e}")
 
                 line = line_bytes.decode('utf-8', errors='ignore').strip()
             
@@ -182,38 +229,50 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
                     rome_api_calls += 1
                     profession = _normalize_profession_value(get_field_or_default(record, 'profession'))
 
-                    wttj =silver_wttj(
-                        reference=job_data.get("reference"),
-                        name=name,
-                        description=description,
-                        profile=clean_html(job_data.get("profile")),
-                        salary_min=job_data.get("salary_min"),
-                        salary_max=job_data.get("salary_max"),
-                        salary_currency=job_data.get("salary_currency"),
-                        education_level=job_data.get("education_level"),
-                        company_summary=job_data.get("company_summary"),
-                        company_description=job_data.get("company_description"),
-                        updated_at=job_data.get("updated_at"),
-                        published_at=job_data.get("published_at"),
-                        archived_at=job_data.get("archived_at"),
-                        contract_duration_min=job_data.get("contract_duration_min"),
-                        remote=job_data.get("remote"),
-                        ats=job_data.get("ats"),
-                        contract_duration_max=job_data.get("contract_duration_max"),
-                        experience_level=job_data.get("experience_level"),
-                        contract_type=job_data.get("contract_type"),
-                        urls=urls_list,
-                        canonical_url=canonical_url,
+                    silver_obj = Silver_Datamodel(
+                        id=str(job_data.get("reference", "")),
+                        source="WTTJ",
+                        url=canonical_url,
+                        title=normalize_text(name),
+                        description=normalize_text(description),
+                        published_at=safe_str_to_datetime(job_data.get("published_at")),
+                        updated_at=safe_str_to_datetime(job_data.get("updated_at")),
+                        unpublished_at=safe_str_to_datetime(job_data.get("archived_at")),
+                        status="archived" if job_data.get("archived_at") else "published",
+                        rome_code=rome_code,
+                        rome_label=rome_label,
+                        title_description="",
+                        contract_type=job_data.get("contract_type", ""),
+                        worktime="",
+                        experience_level=job_data.get("experience_level", ""),
+                        experience_description="",
+                        naf_code="",
+                        job_city="",
+                        job_postal_code="",
+                        company_name=normalize_text(job_data.get("company_summary", "")),
+                        company_city="",
+                        company_postal_code="",
+                        company_url="",
+                        salary_min=safe_str_to_float(job_data.get("salary_min")),
+                        salary_max=safe_str_to_float(job_data.get("salary_max")),
+                        profile=normalize_text(job_data.get("profile", "")),
+                        location_department="",
                         skills=normalize_list_to_strings(job_data.get("skills", [])),
-                        key_missions=normalize_list_to_strings(job_data.get("key_missions", [])),
-                        offices=normalize_list_to_strings(job_data.get("offices", [])),
-                        sectors=normalize_list_to_strings(get_field_or_default(record, 'sectors', [])),
-                        profession=profession
-                        )
-                    # vars: convertit les champs de la class python en dict, prêt pour DataFrame ou JSON
-                    row = vars(wttj)
-                    row["rome_code"] = rome_code
-                    row["rome_label"] = rome_label
+                        salary_periodicity="",
+                    )
+                    row = silver_obj.to_dict()
+                    row["profession"] = profession
+                    row["wttj_salary_currency"] = job_data.get("salary_currency")
+                    row["wttj_education_level"] = job_data.get("education_level")
+                    row["wttj_company_description"] = normalize_text(job_data.get("company_description", ""))
+                    row["wttj_contract_duration_min"] = job_data.get("contract_duration_min")
+                    row["wttj_contract_duration_max"] = job_data.get("contract_duration_max")
+                    row["wttj_remote"] = job_data.get("remote")
+                    row["wttj_ats"] = job_data.get("ats")
+                    row["wttj_key_missions"] = normalize_list_to_strings(job_data.get("key_missions", []))
+                    row["wttj_offices"] = normalize_list_to_strings(job_data.get("offices", []))
+                    row["wttj_sectors"] = normalize_list_to_strings(get_field_or_default(record, 'sectors', []))
+                    row["wttj_urls"] = urls_list
                     data.append(row)
 
                     if rome_db_log_every > 0 and (line_count % rome_db_log_every == 0):
@@ -275,19 +334,10 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
     # Save a global dataframe for the entire job (optional, can be heavy if too many records)     
     df = pd.DataFrame(data)
     # storage_silver already in correct directory, just need to write with correct key
-    silver_key = f"dt={dt}/segment=jobs/all.jsonl"
-    if output_format == "parquet":
-        storage_silver.write_parquet(silver_key.replace(".jsonl", ".parquet"), df)
-        files.append(silver_key.replace(".jsonl", ".parquet"))
-        logger.info(f"[normalize_wttj_jobs] Wrote parquet: {silver_key.replace('.jsonl', '.parquet')} | {len(df)} rows")
-    elif output_format == "jsonl":
-        storage_silver.write_jsonl(silver_key.replace(".jsonl", ".jsonl"), df.to_dict(orient="records"))
-        files.append(silver_key.replace(".jsonl", ".jsonl"))
-        logger.info(f"[normalize_wttj_jobs] Wrote jsonl: {silver_key.replace('.jsonl', '.jsonl')} | {len(df)} rows")
-    elif output_format == "csv":
-        storage_silver.write_bytes(silver_key.replace(".jsonl", ".csv"), df.to_csv(index=False).encode("utf-8"), content_type="text/csv")
-        files.append(silver_key.replace(".jsonl", ".csv"))
-        logger.info(f"[normalize_wttj_jobs] Wrote csv: {silver_key.replace('.jsonl', '.csv')} | {len(df)} rows")
+    key_base = f"dt={dt}/segment=jobs/all"
+    target_key = write_dataframe_with_format(storage_silver, df, key_base, output_format)
+    files.append(target_key)
+    logger.info(f"[normalize_wttj_jobs] Wrote {output_format}: {target_key} | {len(df)} rows")
 
 
     status = "SUCCESS"
@@ -310,9 +360,9 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeWTT
         )
     except Exception as e:
         logger.warning(f"[normalize_wttj_jobs] log_to_db done failed: {e}")
-    return NormalizeWTTJResult(job_id, status, dt, output_format, files, errors)
+    return NormalizeResult(job_id, status, dt, output_format, files, errors)
 
-def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> NormalizeWTTJResult:
+def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> NormalizeResult:
     """
     Process only the latest date available in bronze that is not yet in silver.
     This allows to run the normalization incrementally, for example on a daily basis, without reprocessing all historical data.
@@ -344,9 +394,9 @@ def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> Normalize
     dt_to_process = [d for d in sorted_dates_bronze if d not in sorted_dates_silver]    
     if(len(dt_to_process) == 0):
         logger.info("✅ No new date to process. All dates in bronze are already in silver.")
-        return NormalizeWTTJResult(job_id="none", status="NO_NEW_DATA", dt=None, output_format=output_format, files=[], errors=0)
+        return NormalizeResult(job_id="none", status="NO_NEW_DATA", dt=None, output_format=output_format, files=[], errors=0)
 
-    ret = NormalizeWTTJResult(job_id="incremental", status="RUNNING", dt=str(dt_to_process), output_format=output_format, files=[], errors=0)
+    ret = NormalizeResult(job_id="incremental", status="RUNNING", dt=str(dt_to_process), output_format=output_format, files=[], errors=0)
     for date in dt_to_process:
         logger.info(f"📂 Date to process: {date}")
         result = normalize_wttj_jobs(date , output_format=output_format)   
