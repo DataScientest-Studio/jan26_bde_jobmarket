@@ -146,7 +146,7 @@ class Silver_Datamodel:
         )
         return list(dummy.to_dict().keys())
 
-class NormalizeWTTJResult:
+class NormalizeResult:
     def __init__(self, job_id, status, dt, output_format, files, errors):
         self.job_id = job_id
         self.status = status
