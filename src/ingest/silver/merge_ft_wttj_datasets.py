@@ -37,7 +37,7 @@ from src.storage.storage import get_storage_from_env
 from src.ingest.data_models.silver_datamodel_class import Silver_Datamodel
 from src.utils.normalization_helpers import write_dataframe_with_format
 from src.utils import find_latest_data_prefix, normalize_list_to_strings
-import src.utils.merge_dataset_utils as merge_utils
+import src.utils.merge_dataset_utils as merge_dataset_utils
 
 load_dotenv()
 
@@ -55,6 +55,7 @@ FT_SILVER_PREFIX = os.getenv("FT_SILVER_PREFIX", "dt=2026-02-18/segment=jobs")
 WTTJ_SILVER_PREFIX = os.getenv("WTTJ_SILVER_PREFIX", "dt=2026-02-22/segment=jobs")
 MERGED_DATASET_PREFIX  = os.getenv("MERGED_DATASET_PREFIX", "datasets/ft_wttj_merged")
 
+_FORMAT_FROM_EXT = {"parquet": "parquet", "jsonl": "jsonl", "csv": "csv"}
 
 # =============================
 # File Processing Helpers
@@ -126,10 +127,17 @@ def read_silver_parquet_data(storage, prefix: str, source_label: str) -> pd.Data
 
 
 def harmonize_silver_schema(df: pd.DataFrame, source_label: str) -> pd.DataFrame:
-    """Ensure canonical merge columns exist and keep only merge-relevant fields."""
+    """Ensure canonical merge columns exist and preserve existing normalized fields."""
     canonical_columns = Silver_Datamodel.get_dataframe_columns()
+    normalized_columns = [
+        "contract_normalized",
+        "contract_detail",
+        "experience_normalized",
+        "experience_index",
+        "experience_detail",
+    ]
     if len(df) == 0:
-        return pd.DataFrame(columns=canonical_columns)
+        return pd.DataFrame(columns=canonical_columns + normalized_columns)
 
     default_values = {
         "id": "",
@@ -157,6 +165,9 @@ def harmonize_silver_schema(df: pd.DataFrame, source_label: str) -> pd.DataFrame
         "company_url": "",
         "salary_min": 0.0,
         "salary_max": 0.0,
+        "periodicity": None,
+        "yearly_min": None,
+        "yearly_max": None,
         "profile": "",
         "location_department": "",
         "skills": [],
@@ -169,7 +180,20 @@ def harmonize_silver_schema(df: pd.DataFrame, source_label: str) -> pd.DataFrame
 
     df["source"] = source_label
     df["skills"] = df["skills"].apply(lambda x: normalize_list_to_strings(x) if x is not None else [])
-    return df[canonical_columns]
+
+    # Keep normalized columns if already available in source datasets.
+    if "contract_normalized" not in df.columns:
+        df["contract_normalized"] = df["contract_type"]
+    if "contract_detail" not in df.columns:
+        df["contract_detail"] = None
+    if "experience_normalized" not in df.columns:
+        df["experience_normalized"] = df["experience_level"]
+    if "experience_index" not in df.columns:
+        df["experience_index"] = None
+    if "experience_detail" not in df.columns:
+        df["experience_detail"] = df["experience_description"]
+
+    return df[canonical_columns + normalized_columns]
 
 # =============================
 # Merge and deduplication
@@ -250,9 +274,12 @@ def save_pd_to_storage_with_format(df: pd.DataFrame, storage, format: str = "par
     Returns:
         Output key where data was saved
     """
-    dt_current = datetime.now().strftime("%Y-%m-%d")
+    # Use the most recent date between FT and WTTJ instead of current date,
+    # so re-running a historical import produces the same deterministic key.
+    available_dates = [d for d in [dt_ft, dt_wttj] if d]
+    dt_merged = max(available_dates) if available_dates else datetime.now().strftime("%Y-%m-%d")
 
-    key_base = f"merged_dt={dt_current}_ft_dt={dt_ft}_wttj_dt={dt_wttj}"
+    key_base = f"merged_dt={dt_merged}_ft_dt={dt_ft}_wttj_dt={dt_wttj}"
     output_key = write_dataframe_with_format(storage, df, key_base, format)
     logger.info(f"💾 Save {format.upper()}: {output_key}")
     
@@ -354,15 +381,22 @@ def merge_ft_wttj_datasets(
     # =======================================
     # Apply normalization to mergeded dataset
     # =======================================
-    df_merged = merge_utils.normalize_contracts(df_merged, merge_utils.PATTERNS_CONTRACT_NORMALIZE)
+    df_merged = merge_dataset_utils.normalize_contracts(df_merged, merge_dataset_utils.PATTERNS_CONTRACT_NORMALIZE)
     logger.info("✅ Normalize Contracts COMPLETED ")
 
     # Create composite experience column for normalization
     # TODO : change column name in source
-    df_merged['experience_source_composite'] = df_merged.apply(merge_utils.get_experience_col, axis=1)
+    df_merged['experience_source_composite'] = df_merged.apply(merge_dataset_utils.get_experience_col, axis=1)
+    # TODO: Check normalisation - vérifier que experience_normalized produit bien les labels
+    # attendus (Débutant, 0-1 an, 1-2 ans…) pour FT (codes E/D/S) et WTTJ (LESS_THAN_6_MONTHS…)
+    # lors de la phase d'ingestion. Les parquets Silver existants peuvent contenir les codes bruts.
     # Normalize experience levels using the composite column
-    df_merged = merge_utils.normalize_experience(df_merged,'experience_source_composite')
+    df_merged = merge_dataset_utils.normalize_experience(df_merged,'experience_source_composite')
     logger.info("✅ Normalize Experience COMPLETED ")
+
+    df_merged = merge_dataset_utils.normalize_salary(df_merged)
+    logger.info("✅ Normalize Salary COMPLETED ")
+    logger.info("✅ Normalize Yearly Salary COMPLETED ")
     # =======================================
 
     # Extract dt from prefixes for filename
@@ -381,7 +415,10 @@ def merge_ft_wttj_datasets(
     # Statistics
     if progress_callback:
         progress_callback("computing_stats", "Calcul des statistiques...")
-    merge_utils.print_statistics(df_merged)   
+    try:
+        merge_dataset_utils.print_statistics(df_merged)
+    except UnicodeEncodeError as e:
+        logger.warning(f"Statistics display skipped due to console encoding issue: {e}")
     
     end_time = time.perf_counter()
     elapsed_s = end_time - start_time
@@ -409,8 +446,71 @@ def merge_ft_wttj_datasets(
         "elapsed_s": elapsed_s
     }
 
+def replay_merge_from_key(merged_key: str, output_format: Optional[str] = None) -> Dict:
+    """Replay a merge run from a merged dataset key or filename.
+
+    Parses ft_dt, wttj_dt and the file extension from the key, then calls
+    merge_ft_wttj_datasets with the corresponding Silver prefixes,
+    producing the same deterministic output key as the original run.
+
+    Args:
+        merged_key: Key or filename of the form
+            ``merged_dt=YYYY-MM-DD_ft_dt=YYYY-MM-DD_wttj_dt=YYYY-MM-DD.{parquet|jsonl|csv}``
+        output_format: Output format override. If None, inferred from the key
+            extension (.parquet → "parquet", .jsonl → "jsonl", .csv → "csv").
+            Defaults to "parquet" if the extension is absent or unrecognised.
+
+    Returns:
+        Result dict from merge_ft_wttj_datasets.
+
+    Raises:
+        ValueError: If ft_dt or wttj_dt cannot be extracted from merged_key.
+
+    Example:
+        >>> replay_merge_from_key(
+        ...     "merged_dt=2026-03-05_ft_dt=2026-03-03_wttj_dt=2026-03-05.parquet"
+        ... )
+    """
+    ft_match = re.search(r"ft_dt=(\d{4}-\d{2}-\d{2})", merged_key)
+    wttj_match = re.search(r"wttj_dt=(\d{4}-\d{2}-\d{2})", merged_key)
+
+    if not ft_match or not wttj_match:
+        raise ValueError(
+            f"Cannot extract ft_dt / wttj_dt from key: {merged_key!r}. "
+            "Expected format: merged_dt=..._ft_dt=YYYY-MM-DD_wttj_dt=YYYY-MM-DD"
+        )
+
+    ft_dt = ft_match.group(1)
+    wttj_dt = wttj_match.group(1)
+
+    if output_format is None:
+        ext_match = re.search(r"\.(\w+)$", merged_key)
+        ext = ext_match.group(1).lower() if ext_match else ""
+        output_format = _FORMAT_FROM_EXT.get(ext, "parquet")
+
+    ft_prefix = f"dt={ft_dt}"
+    wttj_prefix = f"dt={wttj_dt}/segment=jobs"
+
+    logger.info(
+        "Replaying merge from key %r — ft_prefix=%s  wttj_prefix=%s  format=%s",
+        merged_key, ft_prefix, wttj_prefix, output_format,
+    )
+    return merge_ft_wttj_datasets(
+        ft_prefix=ft_prefix,
+        wttj_prefix=wttj_prefix,
+        output_format=output_format,
+    )
+
 
 def main():
+
+    ret= replay_merge_from_key("merged_dt=2026-03-05_ft_dt=2026-03-03_wttj_dt=2026-03-05.parquet")
+    ret= replay_merge_from_key("merged_dt=2026-03-07_ft_dt=2026-03-07_wttj_dt=2026-03-07.parquet")
+    ret= replay_merge_from_key("merged_dt=2026-03-10_ft_dt=2026-03-09_wttj_dt=2026-03-09.parquet")
+    ret= replay_merge_from_key("merged_dt=2026-03-11_ft_dt=2026-03-09_wttj_dt=2026-03-09.parquet")
+
+    exit(0)
+
     """Entry point for CLI"""
     parser = argparse.ArgumentParser(description="Merge FT + WTTJ datasets with ROME codes")
     parser.add_argument("--ft-prefix", help="FT Silver data prefix")
