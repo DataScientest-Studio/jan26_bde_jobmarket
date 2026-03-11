@@ -30,11 +30,14 @@ class Silver_Datamodel:
             company_url : str,
             salary_min: float,
             salary_max: float,
-            profile : str,          
+            profile : str,
             location_department: str,
             skills : list,
             salary_periodicity: str,
-            unpublished_at : datetime = None            
+            unpublished_at : datetime = None,
+            periodicity: str = None,
+            yearly_min: float = None,
+            yearly_max: float = None,
  ):
 
         self.source = source
@@ -66,7 +69,10 @@ class Silver_Datamodel:
         self.company_postal_code = company_postal_code
         self.company_url = company_url
         self.salary_periodicity = salary_periodicity
-        
+        self.periodicity = periodicity
+        self.yearly_min = yearly_min
+        self.yearly_max = yearly_max
+
     def __str__(self) -> str:
         """Surcharge affichage print()"""
         desc = self.description[:50] if self.description else "NA"  
@@ -120,7 +126,10 @@ class Silver_Datamodel:
             "profile": self.profile,
             "location_department": self.location_department,
             "skills": self.skills,
-            "salary_periodicity": self.salary_periodicity
+            "salary_periodicity": self.salary_periodicity,
+            "periodicity": self.periodicity,
+            "yearly_min": self.yearly_min,
+            "yearly_max": self.yearly_max,
         }
     
     @classmethod
@@ -138,11 +147,14 @@ class Silver_Datamodel:
             experience_level="", experience_description="", naf_code="",
             job_city="", job_postal_code="",
             company_name="", company_city="", company_postal_code="", company_url="",
-            salary_min=0.0, salary_max=0.0, 
+            salary_min=0.0, salary_max=0.0,
             profile="",
             location_department="",
-            skills=[], 
-            salary_periodicity=""
+            skills=[],
+            salary_periodicity="",
+            periodicity=None,
+            yearly_min=None,
+            yearly_max=None,
         )
         return list(dummy.to_dict().keys())
 
