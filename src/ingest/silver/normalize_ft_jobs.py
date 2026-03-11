@@ -2,7 +2,7 @@
 
 Responsibilities of this file:
 - Source-specific normalization for France Travail (bronze -> silver).
-- JSONL parsing, source field extraction, text/list cleanup, and type harmonization.
+- HTML/text cleanup, list normalization, and basic type harmonization (na management).
 - Output of canonical `Silver_Datamodel`-compatible rows under `dt=...`.
 
 Out of scope for this file:
