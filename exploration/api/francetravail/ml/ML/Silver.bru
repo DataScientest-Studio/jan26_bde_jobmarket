@@ -1,0 +1,30 @@
+meta {
+  name: Silver
+  type: http
+  seq: 3
+}
+
+post {
+  url: http://localhost:8000/data/normalize-wttj-jobs?dt=2026-02-18&output_format=parquet
+  body: json
+  auth: none
+}
+
+params:query {
+  dt: 2026-02-18
+  output_format: parquet
+}
+
+body:json {
+  {
+    "intitule": "Data Engineer",
+    "description": "Développement de pipelines de données avec Python, Spark, Airflow. Mise en place de jobs ETL, ingestion, stockage sur S3/MinIO.",
+    "competences": [
+      "Python",
+      "Spark",
+      "Airflow",
+      "SQL",
+      "S3"
+    ]
+  }
+}

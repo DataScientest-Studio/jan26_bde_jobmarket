@@ -1,17 +1,18 @@
 meta {
-  name: Offre Search
+  name: Liste Metierxx
   type: http
-  seq: 1
+  seq: 2
 }
 
 get {
-  url: https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search?range=2-2
+  url: https://api.francetravail.io/partenaire/rome-metiers
+/v1/metiers/metier/requete?fq=K2107
   body: none
   auth: none
 }
 
 params:query {
-  range: 2-2
+  fq: K2107
 }
 
 headers {
