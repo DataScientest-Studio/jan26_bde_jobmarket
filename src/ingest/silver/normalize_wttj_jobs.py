@@ -2,7 +2,7 @@
 
 Responsibilities of this file:
 - Source-specific normalization for Welcome to the Jungle (bronze -> silver).
-- HTML/text cleanup, list normalization, and basic type harmonization.
+- JSONL parsing, source field extraction, text/list cleanup, and type harmonization.
 - WTTJ-specific enrichment (ROME prediction) during source normalization.
 - Output of canonical `Silver_Datamodel`-compatible rows under `dt=.../segment=jobs`.
 
