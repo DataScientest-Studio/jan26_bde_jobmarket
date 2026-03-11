@@ -20,6 +20,8 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio
+    mem_limit: 1g # Force la libération du cache
+    memswap_limit: 1g    
     ports:
       - "9000:9000"
       - "9001:9001"
