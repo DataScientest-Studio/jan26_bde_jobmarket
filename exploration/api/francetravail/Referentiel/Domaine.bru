@@ -1,0 +1,20 @@
+meta {
+  name: Domaine
+  type: http
+  seq: 4
+}
+
+get {
+  url: https://api.francetravail.io/partenaire/rome-metiers/v1/metiers/grand-domaine
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Authorization: Bearer {{ACCESS_TOKEN}}
+}
+
+docs {
+  https://francetravail.io/produits-partages/catalogue/offres-emploi/documentation#/api-reference/schemas/Offre
+}
