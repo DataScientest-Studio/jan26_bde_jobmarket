@@ -1,4 +1,14 @@
-from src.ingest.france_travail_client import FranceTravailClient
+# ----------------------------
+# Load environment variables
+# ----------------------------
+from src.config.env import load_project_env
+load_project_env()  # safe à rappeler (idempotent)
+
+# ----------------------------
+# Import project-specific modules
+# ----------------------------
+from src.ingest.clients.france_travail_client import FranceTravailClient
+
 import time
 from collections import deque
 
