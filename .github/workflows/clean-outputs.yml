@@ -16,7 +16,13 @@ jobs:
       run: pip install nbstripout
     
     - name: Clean notebooks
-      run: nbstripout $(git ls-files '*.ipynb')
+      run: |
+        files=$(git ls-files '*.ipynb')
+        for f in $files; do
+          if [ -f "$f" ]; then
+            nbstripout "$f"
+          fi
+        done
     
     - name: Commit clean notebooks
       run: |
