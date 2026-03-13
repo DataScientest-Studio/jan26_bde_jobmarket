@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS gold.stg_offer (
     periodicity TEXT,
     yearly_min NUMERIC(12,2),
     yearly_max NUMERIC(12,2),
+    salary_min_computed NUMERIC(12,2),
+    salary_max_computed NUMERIC(12,2),
     inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (run_id, offer_id, source)
 );
@@ -173,6 +175,8 @@ CREATE TABLE IF NOT EXISTS gold.fact_offre_emploi (
     periodicity TEXT,
     yearly_min NUMERIC(12,2),
     yearly_max NUMERIC(12,2),
+    salary_min_computed NUMERIC(12,2),
+    salary_max_computed NUMERIC(12,2),
 
     load_run_id TEXT NOT NULL,
     load_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
