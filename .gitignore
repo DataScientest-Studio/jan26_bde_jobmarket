@@ -95,7 +95,7 @@ exploration/api/francetravail/R/*
 ollama-data/
 
 # Local data storage for MinIO
-minio-data/
+data/
 
 # pgAdmin configuration with passwords
 pgadmin/servers.json
