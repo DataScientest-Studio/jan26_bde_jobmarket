@@ -610,7 +610,7 @@ def process_urls_segment(
     
     def process_one(url: str) -> None:
         """Process a single URL."""
-        nonlocal ok, ko, processed, buffer, last_log_time, last_log_processed
+        nonlocal ok, ko, processed, last_log_time, last_log_processed
 
         thread_name = threading.current_thread().name
         fetch_started_at = time.time()
