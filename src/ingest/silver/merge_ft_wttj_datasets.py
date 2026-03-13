@@ -507,7 +507,6 @@ def main():
     ret= replay_merge_from_key("merged_dt=2026-03-05_ft_dt=2026-03-03_wttj_dt=2026-03-05.parquet")
     ret= replay_merge_from_key("merged_dt=2026-03-07_ft_dt=2026-03-07_wttj_dt=2026-03-07.parquet")
     ret= replay_merge_from_key("merged_dt=2026-03-10_ft_dt=2026-03-09_wttj_dt=2026-03-09.parquet")
-    ret= replay_merge_from_key("merged_dt=2026-03-11_ft_dt=2026-03-09_wttj_dt=2026-03-09.parquet")
 
     exit(0)
 
