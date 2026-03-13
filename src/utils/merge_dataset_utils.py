@@ -246,6 +246,7 @@ def salary_yearly(row):
 
 
 def normalize_salary(df: pd.DataFrame) -> pd.DataFrame:
+
     """Vectorized salary normalization: extract periodicity, min/max and yearly amounts.
 
     Replaces the row-by-row parse_salary + salary_yearly apply() pattern with
@@ -264,6 +265,15 @@ def normalize_salary(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         The same DataFrame with the 5 salary columns populated.
     """
+    logger.info(f"✅ Start normalize_salary")
+
+    #   SALARY_ZERO_AS_INDETERMINATE  (default true)  : salary_min == 0  → yearly = None
+    #   SALARY_YEARLY_MAX (default 150_000)            : yearly_min > threshold → yearly = None
+    # Both cases are treated as "indeterminate" — data exists but cannot be trusted.
+    _YEARLY_MIN = float(os.getenv('SALARY_YEARLY_MIN', '20000'))
+    _YEARLY_MAX = float(os.getenv('SALARY_YEARLY_MAX', '80000'))
+    _ZERO_AS_INDET = os.getenv('SALARY_ZERO_AS_INDETERMINATE', 'true').lower() != 'false'
+
     sal = df['salary_periodicity'].fillna('')
 
     # Use vectorized operation : str.extract() applies the regex over the entire column in C,
@@ -296,25 +306,59 @@ def normalize_salary(df: pd.DataFrame) -> pd.DataFrame:
         (_max * 35 * 52).where(_p == 'horaire', None)))
     )
 
+    # Compute monthly equivalents for threshold comparison (only for filtering, not stored) 
+    min_monthly = df['yearly_min'] / 12
+    max_monthly = df['yearly_max'] / 12
+
+    # Filter out min salaries that are below monthly minimum or above 80% of the monthly maximum threshold
+    # Guardrail on min salary on yearly_max to avoid keeping unrealistic values that would pass the monthly threshold    
+    df['salary_min_computed'] = df['yearly_min'].where(
+                                                        (min_monthly.notna()) & 
+                                                        (min_monthly >= _YEARLY_MIN/12) & 
+                                                        (min_monthly <= 0.8 * _YEARLY_MAX/12) &
+                                                        (df['yearly_min'] <= _YEARLY_MAX)
+                                                        , other=None)
+    
+    # Filter out max salaries that are above the monthly maximum threshold
+    # Guardrail on max salary on yearly_max to avoid keeping unrealistic values that would pass the monthly threshold
+    df['salary_max_computed'] = df['yearly_max'].where(
+                                                        (max_monthly.notna()) &
+                                                        (max_monthly <= _YEARLY_MAX/12) &
+                                                        (max_monthly >= _YEARLY_MIN/12) &
+                                                        (df['yearly_max'] >= _YEARLY_MIN) &
+                                                        (df['yearly_max'] <= _YEARLY_MAX),
+                                                        other=None)
+
     # [VECTORIZED] Indeterminate salary filtering.
     # Two quality rules applied after yearly conversion, configurable via env vars:
-    #   SALARY_ZERO_AS_INDETERMINATE  (default true)  : salary_min == 0  → yearly = None
-    #   SALARY_YEARLY_MAX (default 150_000)            : yearly_min > threshold → yearly = None
-    # Both cases are treated as "indeterminate" — data exists but cannot be trusted.
-    _YEARLY_MAX = float(os.getenv('SALARY_YEARLY_MAX', '150000'))
-    _ZERO_AS_INDET = os.getenv('SALARY_ZERO_AS_INDETERMINATE', 'true').lower() != 'false'
+
+    logger.info(f"Outliers : yearly > {_YEARLY_MAX:,}, zero as indeterminate: {_ZERO_AS_INDET}")
 
     if _ZERO_AS_INDET:
         # [VECTORIZED] Zero raw salary → clear yearly
+        # Set yearly_min and yearly_max to None 
+        # when salary_min is 0 (indeterminate) 
         zero_mask = _min.isna() | (_min == 0)
+        impacted_rows = zero_mask.sum()
+        logger.info(f"Mise à None de yearly_min/yearly_max pour {impacted_rows:,} lignes (salaire brut nul ou NaN)")
         df['yearly_min'] = df['yearly_min'].where(~zero_mask, other=None)
         df['yearly_max'] = df['yearly_max'].where(~zero_mask, other=None)
 
     # [VECTORIZED] Yearly above threshold → indeterminate
-    _yr = pd.to_numeric(df['yearly_min'], errors='coerce')
-    outlier_mask = _yr > _YEARLY_MAX
-    df['yearly_min'] = df['yearly_min'].where(~outlier_mask, other=None)
-    df['yearly_max'] = df['yearly_max'].where(~outlier_mask, other=None)
+    # Set yearly_min and yearly_max to None when yearly_min exceeds the threshold (indeterminate)
+    if _YEARLY_MAX > 0:
+        _yr = pd.to_numeric(df['yearly_min'], errors='coerce')
+        outlier_mask = _yr > _YEARLY_MAX
+        impacted_rows = outlier_mask.sum()
+        logger.info(f"Mise à None de yearly_min/yearly_max pour {impacted_rows:,} lignes (salaire annuel > {_YEARLY_MAX:,})")
+        
+        df['yearly_min'] = df['yearly_min'].where(~outlier_mask, other=None)
+        df['yearly_max'] = df['yearly_max'].where(~outlier_mask, other=None)
+
+    if _ZERO_AS_INDET or _YEARLY_MAX > 0:
+        #logger.info(f"Exemples de lignes avec salaire annuel > {_YEARLY_MAX:,} (traités comme indéterminés) : {df[ pd.to_numeric(df['yearly_min'], errors='coerce') > _YEARLY_MAX].head(5)}")
+        logger.info(f"Exemples de lignes avec salaire min nul ou NaN ou > {_YEARLY_MAX:,} : {df[ df['yearly_min'].isna()].head(5)}")
+        logger.info(f"Exemples de lignes avec salaire max nul ou NaN ou > {_YEARLY_MAX:,} : {df[ df['yearly_max'].isna()].head(5)}")
 
     return df
 
@@ -580,64 +624,7 @@ def print_statistics(df: pd.DataFrame) -> None:
         print("   Missing required column: source")
 
     # Salary
-    print(f"\n💰 SALARY")
-    total = len(df)
-    n_raw = df['salary_periodicity'].fillna('').ne('').sum() if 'salary_periodicity' in df.columns else 0
-    print(f"   Raw salary field set  : {n_raw:,} ({n_raw/total*100:.1f}%)")
-    print(f"   No salary info        : {total - n_raw:,} ({(total - n_raw)/total*100:.1f}%)")
-
-    if 'periodicity' in df.columns:
-        print(f"\n💰 SALARY — AFTER NORMALIZATION")
-        n_per    = df['periodicity'].notna().sum()
-        n_min    = df['salary_min'].notna().sum()  if 'salary_min'  in df.columns else 0
-        n_max    = df['salary_max'].notna().sum()  if 'salary_max'  in df.columns else 0
-        n_yearly = df['yearly_min'].notna().sum()  if 'yearly_min'  in df.columns else 0
-        print(f"   Periodicity extracted : {n_per:,} ({n_per/total*100:.1f}%)")
-        for period, count in df['periodicity'].value_counts(dropna=True).items():
-            print(f"      {period:<10}: {count:,} ({count/total*100:.1f}%)")
-        print(f"   salary_min extracted  : {n_min:,} ({n_min/total*100:.1f}%)")
-        print(f"   salary_max extracted  : {n_max:,} ({n_max/total*100:.1f}%)")
-        print(f"   yearly_min computed   : {n_yearly:,} ({n_yearly/total*100:.1f}%)")
-
-        # Breakdown by periodicity: raw amounts + yearly equivalent
-        # Allows detecting outliers (e.g. an annual salary stored in mensuel field)
-        if 'salary_min' in df.columns and n_yearly > 0:
-            print(f"\n   ── Salary details by periodicity ──")
-            for period in ['Annuel', 'Mensuel', 'Horaire']:
-                mask = df['periodicity'] == period
-                sub = df[mask]
-                if sub.empty:
-                    continue
-                raw_min = sub['salary_min'].dropna()
-                raw_max = sub['salary_max'].dropna()
-                yr_min  = sub['yearly_min'].dropna()
-                yr_max  = sub['yearly_max'].dropna()
-                print(f"   {period} ({len(sub):,} offres):")
-                if not raw_min.empty:
-                    print(f"      Raw  min : avg={raw_min.mean():>10,.0f}  min={raw_min.min():>10,.0f}  max={raw_min.max():>10,.0f}")
-                if not raw_max.empty:
-                    print(f"      Raw  max : avg={raw_max.mean():>10,.0f}  min={raw_max.min():>10,.0f}  max={raw_max.max():>10,.0f}")
-                if not yr_min.empty:
-                    print(f"      Year min : avg={yr_min.mean():>10,.0f}  min={yr_min.min():>10,.0f}  max={yr_min.max():>10,.0f}")
-                if not yr_max.empty:
-                    print(f"      Year max : avg={yr_max.mean():>10,.0f}  min={yr_max.min():>10,.0f}  max={yr_max.max():>10,.0f}")
-                _sample_fields = ['id', 'source', 'title', 'salary_periodicity', 'salary_min', 'salary_max', 'yearly_min', 'yearly_max']
-
-                def _print_extreme_row(label: str, row) -> None:
-                    print(f"      {label}")
-                    for field in _sample_fields:
-                        if field in row.index:
-                            val = str(row[field])[:100] if pd.notna(row[field]) else 'N/A'
-                            print(f"           {field:<20}: {val}")
-
-                # Max outlier: highest raw_min (most suspicious over-valued entry)
-                if not raw_min.empty and raw_min.max() > 0:
-                    _print_extreme_row(f"⚠ Max outlier (raw_min={raw_min.max():,.0f}):", sub.loc[raw_min.idxmax()])
-
-                # Zero salary: salary_min = 0 (suspicious — may indicate missing data or free internship)
-                zero_rows = sub[sub['salary_min'] == 0]
-                if not zero_rows.empty:
-                    _print_extreme_row(f"⚠ Zero salary ({len(zero_rows):,} rows — first shown):", zero_rows.iloc[0])
+    print_statistics_salaries(df)
 
     # Random samples by source
     print(f"\n🎲 3 RANDOM ENTRIES BY SOURCE")
@@ -684,5 +671,81 @@ def print_statistics(df: pd.DataFrame) -> None:
                 print("           " + "-" * 60)
     else:
         print("   Missing required column: source")
+    
+    print("\n" + "=" * 80 + "\n")
+
+
+def print_statistics_salaries(df: pd.DataFrame) -> None:
+    
+    print("\n" + "=" * 80)
+    print("📊 STATISTICS OF THE MERGED DATASET")
+    print("=" * 80)
+    
+    # Global
+    print(f"\n📈 GLOBAL STATISTICS")
+    print(f"   Total offers: {len(df):,}")
+
+    # Salary
+    print(f"\n💰 SALARY")
+    total = len(df)
+    n_raw = df['salary_periodicity'].fillna('').ne('').sum() if 'salary_periodicity' in df.columns else 0
+    print(f"   Raw salary field set  : {n_raw:,} ({n_raw/total*100:.1f}%)")
+    print(f"   No salary info        : {total - n_raw:,} ({(total - n_raw)/total*100:.1f}%)")
+
+    if 'periodicity' in df.columns:
+        print(f"\n💰 SALARY — AFTER NORMALIZATION")
+        n_per    = df['periodicity'].notna().sum()
+        n_min    = df['salary_min_computed'].notna().sum()  if 'salary_min_computed'  in df.columns else 0
+        n_max    = df['salary_max_computed'].notna().sum()  if 'salary_max_computed'  in df.columns else 0
+        n_yearly = df['yearly_min'].notna().sum()  if 'yearly_min'  in df.columns else 0
+        print(f"   Periodicity extracted : {n_per:,} ({n_per/total*100:.1f}%)")
+        for period, count in df['periodicity'].value_counts(dropna=True).items():
+            print(f"      {period:<10}: {count:,} ({count/total*100:.1f}%)")
+        print(f"   salary_min_computed extracted  : {n_min:,} ({n_min/total*100:.1f}%)")
+        print(f"   salary_max_computed extracted  : {n_max:,} ({n_max/total*100:.1f}%)")
+        print(f"   yearly_min computed   : {n_yearly:,} ({n_yearly/total*100:.1f}%)")
+
+        # Breakdown by periodicity: raw amounts + yearly equivalent
+        # Allows detecting outliers (e.g. an annual salary stored in mensuel field)
+        if 'salary_min_computed' in df.columns and n_yearly > 0:
+            print(f"\n   ── Salary details by periodicity ──")
+            for period in ['Annuel', 'Mensuel', 'Horaire']:
+                mask = df['periodicity'] == period
+                sub = df[mask]
+                if sub.empty:
+                    continue
+                raw_min = sub['salary_min_computed'].dropna()
+                raw_max = sub['salary_max_computed'].dropna()
+                yr_min  = sub['yearly_min'].dropna()
+                yr_max  = sub['yearly_max'].dropna()
+                print(f"   {period} ({len(sub):,} offres):")
+                if not raw_min.empty:
+                    print(f"      Raw  min : avg={raw_min.mean():>10,.0f}  min={raw_min.min():>10,.0f}  max={raw_min.max():>10,.0f}")
+                if not raw_max.empty:
+                    print(f"      Raw  max : avg={raw_max.mean():>10,.0f}  min={raw_max.min():>10,.0f}  max={raw_max.max():>10,.0f}")
+                if not yr_min.empty:
+                    print(f"      Year min : avg={yr_min.mean():>10,.0f}  min={yr_min.min():>10,.0f}  max={yr_min.max():>10,.0f}")
+                if not yr_max.empty:
+                    print(f"      Year max : avg={yr_max.mean():>10,.0f}  min={yr_max.min():>10,.0f}  max={yr_max.max():>10,.0f}")
+                _sample_fields = ['id', 'source', 'title', 'salary_periodicity', 'salary_min_computed', 'salary_max_computed', 'yearly_min', 'yearly_max']
+
+                def _print_extreme_row(label: str, row) -> None:
+                    print(f"      {label}")
+                    for field in _sample_fields:
+                        if field in row.index:
+                            val = str(row[field])[:100] if pd.notna(row[field]) else 'N/A'
+                            print(f"           {field:<20}: {val}")
+
+                # Max outlier: highest raw_min (most suspicious over-valued entry)
+                if not raw_min.empty and raw_min.max() > 0:
+                    _print_extreme_row(f"⚠ Max outlier (raw_min={raw_min.max():,.0f}):", sub.loc[raw_min.idxmax()])
+
+                # Zero salary: salary_min_computed = 0 (suspicious — may indicate missing data or free internship)
+                zero_rows = sub[sub['salary_min_computed'] == 0]
+                if not zero_rows.empty:
+                    _print_extreme_row(f"⚠ Zero salary ({len(zero_rows):,} rows — first shown):", zero_rows.iloc[0])
+
+    else:
+        print("   Missing required column")
     
     print("\n" + "=" * 80 + "\n")
