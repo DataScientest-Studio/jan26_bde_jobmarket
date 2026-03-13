@@ -1,5 +1,5 @@
 """
-Build status evolution analytics datasets — Génération des datasets analytiques d'évolution de statut.
+Build status evolution analytics datasets 
 
 This script generates the analytic parquets (complete_dataset + status_timeline) from status_history and merged snapshots.
 
@@ -124,12 +124,13 @@ def _build_complete_latest_dataset(
 	Build complete latest dataset by merging latest status snapshot with latest merged snapshot.
 
 	This dataset represents the full state of all offers at the latest snapshot date, with status info.
-	It is used as the reference dataset for the latest snapshot in the status timeline and for KPI computation.
+	It is used as the reference dataset for the latest snapshot in the status timeline.
 
 	Returns:
 		- complete_df: DataFrame with one row per offer (id, source) at the latest snapshot date,
 		- containing status fields from latest_status_df and merged fields from latest_merged_df.
-	  The merge is done on (id, source) keys. If an offer is present in status but not in merged, it will still be included with NaNs for merged fields.
+	  The merge is done on (id, source) keys. If an offer is present in status but not in merged, 
+	  it will still be included with NaNs for merged fields.
 	"""
 	required_keys = {"id", "source"}
 	missing_status = required_keys.difference(latest_status_df.columns)
