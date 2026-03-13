@@ -107,4 +107,4 @@ env_*/
 logs/api/structured.jsonl
 
 /docs/
-/test/
+/wttj_ingest2/
