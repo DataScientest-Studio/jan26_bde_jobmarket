@@ -63,12 +63,6 @@ from tqdm import tqdm
 from src.config.env import load_project_env
 from src.storage.storage import get_storage_from_env
 from src.utils import storage_tools
-from src.utils.merge_dataset_utils import (
-    PATTERNS_CONTRACT_NORMALIZE,
-    get_experience_col,
-    normalize_contracts,
-    normalize_experience,
-)
 
 try:
     import psycopg
@@ -195,35 +189,6 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
     }
     working = working.rename(columns=rename_map)
 
-    # TODO: Supprimer cette étape une fois que la normalisation est vérifiée et garantie
-    # dans le pipeline d'ingestion Silver (merge_ft_wttj_datasets.py). Cette logique
-    # doit rester dans la couche Silver, pas ici.
-    # Re-apply contract normalization from raw contract_type when available.
-    if "contract_type" not in working.columns and "contract_normalized" in working.columns:
-        working["contract_type"] = working["contract_normalized"]
-    if "contract_type" not in working.columns:
-        working["contract_type"] = None
-    working = normalize_contracts(working, PATTERNS_CONTRACT_NORMALIZE)
-
-    # TODO: Supprimer cette étape une fois que la normalisation est vérifiée et garantie
-    # dans le pipeline d'ingestion Silver (merge_ft_wttj_datasets.py). Cette logique
-    # doit rester dans la couche Silver, pas ici.
-    # Re-apply experience normalization: the Silver merge pipeline stores raw codes
-    # (e.g. 'E', 'D' for FT; 'LESS_THAN_6_MONTHS' for WTTJ) in experience_normalized.
-    # Use get_experience_col (source-aware) to pick the best input column, then normalize.
-    working["_exp_input"] = working.apply(
-        lambda row: get_experience_col(
-            {
-                "source": row.get("source", ""),
-                "experience_level": row.get("experience_level"),
-                "experience_description": row.get("experience_description"),
-            }
-        ),
-        axis=1,
-    )
-    working = normalize_experience(working, "_exp_input")
-    working = working.drop(columns=["_exp_input"], errors="ignore")
-
     required_cols = {
         "offer_id": "",
         "source": "UNKNOWN",
@@ -256,6 +221,8 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
         "periodicity": None,
         "yearly_min": None,
         "yearly_max": None,
+        "salary_min_computed": None,
+        "salary_max_computed": None,
     }
 
     for col, default_value in required_cols.items():
@@ -356,6 +323,8 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
         "periodicity",
         "yearly_min",
         "yearly_max",
+        "salary_min_computed",
+        "salary_max_computed",
     ]
 
     # Deduplicate by offer key for the run.
@@ -398,6 +367,8 @@ def _copy_staging(conn, df: pd.DataFrame, chunk_size: int = 50_000) -> None:
         "periodicity",
         "yearly_min",
         "yearly_max",
+        "salary_min_computed",
+        "salary_max_computed",
     ]
 
     copy_sql = (
@@ -502,103 +473,100 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
         )
 
         cur.execute(
-            """
-            INSERT INTO gold.fact_offre_emploi (
-                offer_id,
-                source,
-                snapshot_dt,
-                geo_key,
-                naf_key,
-                rome_key,
-                contract_key,
-                experience_key,
-                status,
-                published_at,
-                updated_at,
-                unpublished_at,
-                title,
-                description,
-                job_postal_code,
-                job_city,
-                company_name,
-                company_city,
-                company_postal_code,
-                salary_min,
-                salary_max,
-                salary_periodicity,
-                periodicity,
-                yearly_min,
-                yearly_max,
-                load_run_id
-            )
-            SELECT
-                s.offer_id,
-                s.source,
-                s.snapshot_dt,
-                dg.geo_key,
-                dn.naf_key,
-                dr.rome_key,
-                dc.contract_key,
-                de.experience_key,
-                s.status,
-                s.published_at,
-                s.updated_at,
-                s.unpublished_at,
-                s.title,
-                s.description,
-                s.job_postal_code,
-                s.job_city,
-                s.company_name,
-                s.company_city,
-                s.company_postal_code,
-                s.salary_min,
-                s.salary_max,
-                s.salary_periodicity,
-                s.periodicity,
-                s.yearly_min,
-                s.yearly_max,
-                s.run_id
-            FROM gold.stg_offer s
-            JOIN gold.dim_geo dg
-              ON dg.code_postal = COALESCE(NULLIF(s.job_postal_code, ''), 'UNKNOWN')
-            JOIN gold.dim_naf dn
-              ON dn.naf_code = COALESCE(NULLIF(s.naf_code, ''), 'UNKNOWN')
-            JOIN gold.dim_code_rome dr
-              ON dr.rome_code = COALESCE(NULLIF(s.rome_code, ''), 'UNKNOWN')
-            JOIN gold.dim_type_contrat dc
-              ON dc.contract_type = COALESCE(NULLIF(s.contract_normalized, ''), 'Non précisé')
-            JOIN gold.dim_experience de
-              ON de.experience_level = COALESCE(NULLIF(s.experience_normalized, ''), 'Non précisé')
-            WHERE s.run_id = %s
-            ON CONFLICT (offer_id, source)
-            DO UPDATE SET
-                snapshot_dt = EXCLUDED.snapshot_dt,
-                geo_key = EXCLUDED.geo_key,
-                naf_key = EXCLUDED.naf_key,
-                rome_key = EXCLUDED.rome_key,
-                contract_key = EXCLUDED.contract_key,
-                experience_key = EXCLUDED.experience_key,
-                status = EXCLUDED.status,
-                published_at = EXCLUDED.published_at,
-                updated_at = EXCLUDED.updated_at,
-                unpublished_at = EXCLUDED.unpublished_at,
-                title = EXCLUDED.title,
-                description = EXCLUDED.description,
-                job_postal_code = EXCLUDED.job_postal_code,
-                job_city = EXCLUDED.job_city,
-                company_name = EXCLUDED.company_name,
-                company_city = EXCLUDED.company_city,
-                company_postal_code = EXCLUDED.company_postal_code,
-                salary_min = EXCLUDED.salary_min,
-                salary_max = EXCLUDED.salary_max,
-                salary_periodicity = EXCLUDED.salary_periodicity,
-                periodicity = EXCLUDED.periodicity,
-                yearly_min = EXCLUDED.yearly_min,
-                yearly_max = EXCLUDED.yearly_max,
-                load_run_id = EXCLUDED.load_run_id,
-                load_ts = NOW()
-            """,
-            (run_id,),
+                """
+                INSERT INTO gold.fact_offre_emploi (
+                        offer_id,
+                        source,
+                        snapshot_dt,
+                        geo_key,
+                        naf_key,
+                        rome_key,
+                        contract_key,
+                        experience_key,
+                        status,
+                        published_at,
+                        updated_at,
+                        unpublished_at,
+                        title,
+                        description,
+                        job_postal_code,
+                        job_city,
+                        company_name,
+                        company_city,
+                        company_postal_code,
+                        salary_min,
+                        salary_max,
+                        salary_periodicity,
+                        salary_min_computed,
+                        salary_max_computed,
+                        load_run_id
+                )
+                SELECT
+                        s.offer_id,
+                        s.source,
+                        s.snapshot_dt,
+                        dg.geo_key,
+                        dn.naf_key,
+                        dr.rome_key,
+                        dc.contract_key,
+                        de.experience_key,
+                        s.status,
+                        s.published_at,
+                        s.updated_at,
+                        s.unpublished_at,
+                        s.title,
+                        s.description,
+                        s.job_postal_code,
+                        s.job_city,
+                        s.company_name,
+                        s.company_city,
+                        s.company_postal_code,
+                        s.salary_min,
+                        s.salary_max,
+                        s.salary_periodicity,
+                        s.salary_min_computed,
+                        s.salary_max_computed,
+                        s.run_id
+                FROM gold.stg_offer s
+                JOIN gold.dim_geo dg
+                    ON dg.code_postal = COALESCE(NULLIF(s.job_postal_code, ''), 'UNKNOWN')
+                JOIN gold.dim_naf dn
+                    ON dn.naf_code = COALESCE(NULLIF(s.naf_code, ''), 'UNKNOWN')
+                JOIN gold.dim_code_rome dr
+                    ON dr.rome_code = COALESCE(NULLIF(s.rome_code, ''), 'UNKNOWN')
+                JOIN gold.dim_type_contrat dc
+                    ON dc.contract_type = COALESCE(NULLIF(s.contract_normalized, ''), 'Non précisé')
+                JOIN gold.dim_experience de
+                    ON de.experience_level = COALESCE(NULLIF(s.experience_normalized, ''), 'Non précisé')
+                WHERE s.run_id = %s
+                ON CONFLICT (offer_id, source)
+                DO UPDATE SET
+                        snapshot_dt = EXCLUDED.snapshot_dt,
+                        geo_key = EXCLUDED.geo_key,
+                        naf_key = EXCLUDED.naf_key,
+                        rome_key = EXCLUDED.rome_key,
+                        contract_key = EXCLUDED.contract_key,
+                        experience_key = EXCLUDED.experience_key,
+                        status = EXCLUDED.status,
+                        published_at = EXCLUDED.published_at,
+                        updated_at = EXCLUDED.updated_at,
+                        unpublished_at = EXCLUDED.unpublished_at,
+                        title = EXCLUDED.title,
+                        description = EXCLUDED.description,
+                        job_postal_code = EXCLUDED.job_postal_code,
+                        job_city = EXCLUDED.job_city,
+                        company_name = EXCLUDED.company_name,
+                        company_city = EXCLUDED.company_city,
+                        company_postal_code = EXCLUDED.company_postal_code,
+                        salary_min = EXCLUDED.salary_min,
+                        salary_max = EXCLUDED.salary_max,
+                        salary_periodicity = EXCLUDED.salary_periodicity,
+                        salary_min_computed = EXCLUDED.salary_min_computed,
+                        salary_max_computed = EXCLUDED.salary_max_computed,
+                        load_run_id = EXCLUDED.load_run_id,
+                        load_ts = NOW()
+                """,
+                (run_id,),
         )
 
 
