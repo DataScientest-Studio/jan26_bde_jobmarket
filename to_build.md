@@ -925,6 +925,10 @@ Raisons :
 
 ## Pipelines de données
 
+![Schéma général](/images/pipeline.png)
+
+![Schéma général](/images/hist_status.png)
+
 ### Pipeline 1 : Ingestion France Travail
 
 ```
@@ -1207,6 +1211,21 @@ docker-compose ps
 curl http://localhost:8000/docs   # FastAPI Swagger
 curl http://localhost:3000/ # Dashboard Grafana
 curl http://localhost:8888/ # Jupyter (token=jobmarket)
+
+# 6. Reconstrurction du schema gold si volume docker existant
+
+# Création schéma Gold
+docker exec jobmarket-postgres psql -U jobuser -d jobdb -f /docker-entrypoint-initdb.d/003_gold_star_schema.sql
+
+# Alimentation des codes postaux (dim_geo)
+env_job_market\Scripts\python.exe -m src.ingest.gold.load_geo_dim
+# Alimentation des codes naf (dim_naf)
+env_job_market\Scripts\python.exe -m src.ingest.gold.load_naf_dim
+# Alimentation du schema gold (wip) à partir des dataset d'historique de statut
+
+env_job_market\Scripts\python.exe -m src.ingest.gold.load_star_schema --source-mode auto
+
+
 
 ```
 
