@@ -64,7 +64,7 @@ from src.ingest.bronze.ingest_wttj_collect_urls import collect_sitemap_urls
 from src.ingest.bronze.ingest_wttj_job_opt import ingest_welcome_to_the_jungle_opt
 from src.ingest.silver.merge_ft_wttj_datasets import merge_ft_wttj_datasets
 from src.ingest.silver.calculate_offer_status import run_status_tracking
-from src.ingest.silver.generate_status_evolution_datasets import run_status_evolution_parquet_generation
+from src.ingest.silver.generate_status_evolution_datasets import run_status_evolution_parquet_generation, run_daily_reconstruction
 
 # Observability & utilities
 from src.observability.job_store import JobStore
@@ -1495,7 +1495,11 @@ def run_status_evolution_task(
 
     try:
         log_to_db('status_evolution', 'INFO', f"Starting status evolution parquet generation (mode={mode})", task_id=task_id)
-        result = run_status_evolution_parquet_generation(mode=mode, output_prefix=output_prefix)
+        if mode == "daily_reconstruction":
+            run_daily_reconstruction()
+            result = {"success": True, "mode": "daily_reconstruction"}
+        else:
+            result = run_status_evolution_parquet_generation(mode=mode, output_prefix=output_prefix)
         duration_sec = time.monotonic() - start_monotonic
 
         if result["success"]:
@@ -2468,6 +2472,11 @@ async def status_tracking_endpoint(
 - Loads all status snapshots and concatenates them into a full timeline
 - Rebuilds all `complete_dataset` and `status_timeline` partitions from scratch
 
+**Daily reconstruction mode** (very slow — audit/backfill):
+- Simulates a daily pipeline run for each snapshot date
+- Generates `complete_dataset` and `status_timeline` as if the pipeline had run each day
+- Use for audit, backfill, or full validation
+
 **Outputs** (written under `silver/status_analytics`):
 - `dt={analysis_dt}/segment=complete_dataset/complete_offers_with_status.parquet`
 - `dt={analysis_dt}/segment=status_timeline/status_timeline.parquet`
@@ -2476,7 +2485,7 @@ async def status_tracking_endpoint(
 )
 async def status_evolution_endpoint(
     background_tasks: BackgroundTasks,
-    mode: str = Query(default="incremental", description="Generation mode: 'incremental' (latest snapshot only, fast) or 'recompute_all' (full timeline rebuild, slow)"),
+    mode: str = Query(default="incremental", description="Generation mode: 'incremental' (latest snapshot only, fast), 'recompute_all' (full timeline rebuild, slow) or 'daily_reconstruction' (simulate daily run per snapshot, audit/backfill)"),
     output_prefix: Optional[str] = Query(default=None, description="Optional prefix for output parquet filenames (avoids overwriting previous runs)"),
     background: bool = Query(default=True, description="Run task in background"),
 ):
@@ -2504,6 +2513,9 @@ async def status_evolution_endpoint(
         return StatusEvolutionResponse(success=True, message=f"Status evolution generation started in background (task_id: {task_id})", mode=mode)
     else:
         try:
+            if mode == "daily_reconstruction":
+                run_daily_reconstruction()
+                return StatusEvolutionResponse(success=True, message="Daily reconstruction completed", mode=mode)
             result = run_status_evolution_parquet_generation(mode=mode, output_prefix=output_prefix)
             return StatusEvolutionResponse(
                 success=result["success"],
