@@ -133,6 +133,7 @@ Validation run (GLOBAL RECALCULATION):
 """
 
 import argparse
+import gc
 import logging
 import numpy as np
 import pandas as pd
@@ -763,48 +764,69 @@ def _run_global_status_recalculation(
     logger.info(f"   Last:  {all_parquet_files[-1]}")
     logger.info("")
     
-    # Track all status records across all dates
-    all_status_records = []
     all_stats = {}
-    
+    total_status_records = 0
+    save_results = {}
     df_previous = None
-    
+
     for file_idx, merged_file in enumerate(all_parquet_files, start=1):
         logger.info(f"[{file_idx:>3d}/{len(all_parquet_files):>3d}] Processing: {merged_file}")
-        
+
         df_current = storage_tools.load_parquet_dataset(storage_merged, merged_file)
         if df_current is None:
             logger.warning(f"            ⚠️ Failed to load, skipping")
             continue
-        
+
         logger.info(f"            ✓ Loaded {len(df_current):,} rows")
-        
-        # Extract date from filename
+
         merged_dt_match = re.search(r"merged_dt=(\d{4}-\d{2}-\d{2})", merged_file)
         current_dt = merged_dt_match.group(1) if merged_dt_match else None
-        
+
         if current_dt is None:
             logger.warning(f"            ⚠️ Could not extract date from filename, skipping")
             continue
-        
+
         logger.info(f"            Building status history for {current_dt}...")
-        
-        # Build status for this dt
+
+        # Pass only needed columns to avoid full-DataFrame copies inside build_status_history_dataset:
+        # - df_new only needs id + source
+        # - df_old needs the 8 status lifecycle columns (already slimmed from previous iteration)
         df_status, stats = build_status_history_dataset(
             df_old=df_previous,
-            df_new=df_current,
+            df_new=df_current[["id", "source"]],
             current_dt=current_dt
         )
-        
-        all_status_records.append((current_dt, df_status))
-        all_stats[current_dt] = stats
-        
+
         logger.info(f"            ✓ {len(df_status):,} status records computed")
-        
-        # Update for next iteration
-        df_previous = df_current
-    
-    if len(all_status_records) == 0:
+
+        # Save immediately and free df_status — avoids accumulating all DataFrames in memory
+        run_prefix = f"dt={current_dt}/segment=offer_status/"
+        output_key = f"{run_prefix}offer_status.parquet"
+        if output_prefix:
+            output_key = f"{run_prefix}{output_prefix}.parquet"
+
+        success = storage_tools.save_parquet_dataset(storage_status, df_status, output_key)
+        save_results[current_dt] = {
+            "success": success,
+            "output_key": output_key,
+            "records": len(df_status),
+        }
+        if success:
+            total_status_records += len(df_status)
+            logger.info(f"[{file_idx:>3d}/{len(all_parquet_files):>3d}] ✅ {current_dt}: {len(df_status):,} records → {output_key}")
+        else:
+            logger.error(f"[{file_idx:>3d}/{len(all_parquet_files):>3d}] ❌ {current_dt}: Failed to save")
+
+        all_stats[current_dt] = stats
+
+        # Slim df_current to only the columns needed as df_old in the next iteration, then free df_status
+        _STATUS_COLS = ["id", "source", "status", "published_at", "unpublished_at", "reappeared_at", "first_seen_dt", "last_seen_dt"]
+        df_previous = df_status[[c for c in _STATUS_COLS if c in df_status.columns]].copy()
+        del df_status
+        del df_current
+        gc.collect()
+
+    if len(save_results) == 0:
         logger.error("❌ No valid merged datasets found for global recalculation")
         return {
             "success": False,
@@ -812,42 +834,11 @@ def _run_global_status_recalculation(
             "status_stats": {}
         }
     
-    logger.info("")
-    logger.info(f"Processed {len(all_status_records)} datasets successfully")
-    
-    # Save all status datasets to their respective dt partitions
-    logger.info("")
-    logger.info(f"💾 Saving {len(all_status_records)} status history partitions...")
-    logger.info("")
-    
-    total_status_records = 0
-    save_results = {}
-    
-    for save_idx, (current_dt, df_status) in enumerate(all_status_records, start=1):
-        run_prefix = f"dt={current_dt}/segment=offer_status/"
-        output_key = f"{run_prefix}offer_status.parquet"
-        
-        if output_prefix:
-            output_key = f"{run_prefix}{output_prefix}.parquet"
-        
-        success = storage_tools.save_parquet_dataset(storage_status, df_status, output_key)
-        save_results[current_dt] = {
-            "success": success,
-            "output_key": output_key,
-            "records": len(df_status)
-        }
-        
-        if success:
-            total_status_records += len(df_status)
-            logger.info(f"[{save_idx:>3d}/{len(all_status_records):>3d}] ✅ {current_dt}: {len(df_status):,} records → {output_key}")
-        else:
-            logger.error(f"[{save_idx:>3d}/{len(all_status_records):>3d}] ❌ {current_dt}: Failed to save")
-    
     elapsed_sec = time.time() - start_time
     
     successful_saves = sum(1 for r in save_results.values() if r["success"])
     
-    if successful_saves == len(all_status_records):
+    if successful_saves == len(save_results):
         logger.info("")
         logger.info("=" * 80)
         logger.info("✅ GLOBAL STATUS RECALCULATION COMPLETED SUCCESSFULLY")
@@ -882,13 +873,13 @@ def _run_global_status_recalculation(
             "elapsed_sec": elapsed_sec
         }
     else:
-        logger.warning(f"⚠️  Partial completion: {successful_saves}/{len(all_status_records)} dates saved successfully")
+        logger.warning(f"⚠️  Partial completion: {successful_saves}/{len(save_results)} dates saved successfully")
         
         try:
             log_to_db(
                 endpoint="calculate_offer_status",
                 level="WARNING",
-                message=f"Global recalculation partially completed: {successful_saves}/{len(all_status_records)} dates",
+                message=f"Global recalculation partially completed: {successful_saves}/{len(save_results)} dates",
                 task_id=job_id,
                 duration_sec=elapsed_sec,
                 status="PARTIAL",
@@ -899,7 +890,7 @@ def _run_global_status_recalculation(
         
         return {
             "success": False,
-            "message": f"Global recalculation partial: {successful_saves}/{len(all_status_records)} dates saved",
+            "message": f"Global recalculation partial: {successful_saves}/{len(save_results)} dates saved",
             "mode": "global_recalc",
             "dates_processed": successful_saves,
             "total_status_records": total_status_records,
