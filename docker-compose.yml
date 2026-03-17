@@ -2,6 +2,9 @@ version: "3.9"
 
 services:
   postgres:
+    cpus: "2.0"
+    mem_limit: 4g 
+    memswap_limit: 4g    
     image: postgres:15
     container_name: jobmarket-postgres
     restart: unless-stopped
@@ -18,10 +21,12 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d
 
   minio:
-    image: minio/minio:latest
-    container_name: minio
+    cpus: "0.5"
     mem_limit: 1g # Force la libération du cache
     memswap_limit: 1g    
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped    
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -46,6 +51,9 @@ services:
     restart: "no"
 
   jupyter:
+    cpus: "1.5"
+    mem_limit: 5g
+    memswap_limit: 5g    
     build: .                          # pour utiliser le Dockerfile local
     container_name: jobmarket-jupyter
     restart: unless-stopped    
@@ -56,7 +64,6 @@ services:
     environment:
       JUPYTER_TOKEN: jobmarket
       PYTHONPATH: /home/jovyan/work    #  pour 
-      
 
       STORAGE_BACKEND: s3
       S3_ENDPOINT_URL: http://minio:9000
@@ -83,6 +90,9 @@ services:
       jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token=jobmarket
       "    
   jobmarket-api:
+    cpus: "4.0"
+    mem_limit: 6g
+    memswap_limit: 6g  
     build:
       context: .
       dockerfile: Dockerfile.api
@@ -110,8 +120,12 @@ services:
       - ./logs:/app/logs  # Logs accessibles sur l'hôte
 
   grafana:
+    cpus: "0.5"
+    mem_limit: 512m
+    memswap_limit: 1g    
     image: grafana/grafana:10.2.3
     container_name: jobmarket-grafana
+    restart: unless-stopped    
     depends_on:
       - postgres
     ports:
@@ -130,8 +144,12 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
 
   pgadmin:
+    cpus: "0.5"
+    mem_limit: 512m
+    memswap_limit: 512m    
     image: dpage/pgadmin4:latest
     container_name: jobmarket-pgadmin
+    restart: unless-stopped    
     depends_on:
       - postgres
     ports:
