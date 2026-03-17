@@ -57,6 +57,20 @@ def _extract_run_prefix(key: str) -> str:
 
 
 def normalize_ft_jobs(dt: str, output_format: str = "parquet") -> NormalizeResult:
+    """ 
+    Normalize FT jobs for a given date (dt) and save to silver.
+
+    Operations:
+    - Load JSONL records from bronze for the specified date prefix.
+    - For each record, extract and normalize fields into the Silver_Datamodel structure.
+    - Handle missing/NA values gracefully with safe parsing functions (like `safe_str_to_datetime` and `safe_str_to_float`).
+    - Save the resulting DataFrame to silver in the specified output format under a structured key.
+
+    Args:
+    - dt: Date to process (format YYYYMMDD). If "latest" or empty, processes the latest date available in bronze.
+    - output_format: Format to save the normalized data (parquet or jsonl).
+
+    """
     job_id = f"ft-normalize-{dt}-{uuid.uuid4().hex[:8]}"
     files: List[str] = []
     errors = 0
