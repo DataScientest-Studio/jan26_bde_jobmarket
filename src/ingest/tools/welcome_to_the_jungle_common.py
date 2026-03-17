@@ -85,11 +85,19 @@ INITIAL_DATA_RE = re.compile(
 # ----------------------------
 # HTTP Session with Retry
 # ----------------------------
-def build_session() -> requests.Session:
+def build_session(workers: int = 10) -> requests.Session:
     """ 
     Build a requests session with retry logic and custom headers.
+    Pool size is calibrated to the number of workers to avoid holding
+    more connections open than needed, which wastes memory and file descriptors.
     """
+
     session = requests.Session()
+
+    # Pool size calibrated to workers.
+    # +2 for margin (sitemap downloads, occasional burst)
+    pool_size = workers + 2
+    
     # Configure retries with exponential backoff for transient errors
     retry = Retry(
         total=int(os.getenv("WTTJ_RETRIES", "5")),
@@ -100,16 +108,18 @@ def build_session() -> requests.Session:
         respect_retry_after_header=True,
     )
     # Use a connection pool with a reasonable size for concurrent requests
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=50, pool_maxsize=50)
+    adapter = HTTPAdapter(
+            max_retries=retry,
+            pool_connections=pool_size,
+            pool_maxsize=pool_size,
+        )    
     # Mount the adapter for both HTTP and HTTPS
     session.mount("https://", adapter)
     session.mount("http://", adapter)
 
     # Set a realistic User-Agent to avoid being blocked by WTTJ. 
     # TODO : Rotate User-Agents if needed, or use a library like fake-useragent for more variability.
-    # Or use a GoogleBot or ChatGPT UA to try to get less blocked, but it can also backfire if the site has specific rules for bots.
-    session.headers.update(
-        {
+    session.headers.update(        {
             "User-Agent": os.getenv(
                 "WTTJ_UA",
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -440,7 +450,7 @@ def ingest_segment(
     - skip_urls: An optional set of URLs to skip (e.g., already processed in a previous run)
 
     Returns:
-    - None (results are written to storage and progress meta)
+    - Dict with segment statistics (processed, written, ok, ko, elapsed_s)
     """
 
     # We use a thread pool to fetch pages concurrently while respecting the rate limiter.
@@ -478,8 +488,11 @@ def ingest_segment(
     start_time = time.time()
     last_checkpoint_time = start_time
     
-    logger.info(f"Start segment={segment} | urls_total={len(urls)} | skip={len(skip_urls)} | todo={len(urls_todo)} | workers={workers} | part_size={part_size} | next_part={part_no}" )
-    
+    logger.info(
+        f"Start segment={segment} | urls_total={len(urls)} | skip={len(skip_urls)} | "
+        f"todo={len(urls_todo)} | workers={workers} | part_size={part_size} | next_part={part_no}"
+    )    
+
     # Standardized task_id prefix for this segment operation (easier filtering in DB/Grafana)
     segment_task_prefix = f"{run_id}:segment={segment}"
     segment_task_id = f"{segment_task_prefix}:event=start"
@@ -503,7 +516,10 @@ def ingest_segment(
 
 
     def flush_buffer() -> None:
-        """ Nested function to flush the current buffer of records to storage as a new part file, and update the progress meta."""
+        """ 
+        Nested function to flush the current buffer of records to storage as a new part file, and update the progress meta.
+        Do a garbage collection after flushing to give back memory to the OS, which is important in a long-running ingestion process to avoid memory bloat.
+        """
         nonlocal part_no, total_written, buffer
         if not buffer:
             return
@@ -515,6 +531,11 @@ def ingest_segment(
 
         part_no += 1
         buffer = []
+
+        # Garbage Collector Python : give back memory to the OS after each flush
+        # Without this, the allocator keeps the memory fragmented even after buffer = []
+        import gc
+        gc.collect() 
 
         write_progress_meta(storage, meta_key, {
             "source": "welcometothejungle",
@@ -579,139 +600,199 @@ def ingest_segment(
     trace_enabled = _is_truthy(os.getenv("WTTJ_OPT_THREAD_TRACE_ENABLED", "0"))
     if trace_enabled:
         setup_thread_trace_logging()
-    
+
+     # ── Batch streaming de Futures ────────────────────────────────────────────
+     # Instead of submitting all URLs at once (which could lead to 39k futures in memory simultaneously),
+     # We keep a sliding window of SUBMIT_BATCH active futures at any given time.
+     # It limit upper memory usage to ~SUMBIT_BATCH pages HTML in memory, 
+     # instead of potentially several GB if all pages were retained simultaneously.
+    SUBMIT_BATCH = 200  # Max futures  simultaneous active 
+
+    from concurrent.futures import wait, FIRST_COMPLETED
+
     # We use a ThreadPoolExecutor to fetch pages concurrently. 
     # For each URL, we submit a fetch_page task to the pool, which will return a FetchResult when done.
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        # We create a dictionary mapping each Future to its corresponding URL, so that when a Future completes, 
-        # we can easily identify which URL it corresponds to.
-        logger.info(f"⏳ Submitting {len(urls_todo)} URLs to {workers} workers...")
-        futures = {pool.submit(fetch_page, session, limiter, url, trace_enabled): url for url in urls_todo}
-        logger.info(f"✅ All {len(futures)} tasks submitted. Starting fetch loop with progress_log_every={progress_log_every}")
+        
+        urls_iter = iter(urls_todo)
+        # Dictionnaire des futures actifs : future → url
+        # On le maintient petit (≤ SUBMIT_BATCH) pour limiter la mémoire
+        active_futures: dict = {}
 
-        # We use as_completed to iterate over the Futures as they complete, regardless of the order they were submitted.
-        for fut in as_completed(futures):
-            res = fut.result()
-            fetched_at = utc_now_iso()
-            processed += 1
-            
-            # Log the first processing to confirm workers are active
-            if processed == 1:
-                logger.info(f"🚀 First URL processed successfully. Workers are active. Rate limiter at {limiter.rate} req/s")
+        def fill_queue():
+            """
+            Remplit la queue de futures jusqu'à SUBMIT_BATCH actifs.
+            Appelé au démarrage puis après chaque batch de completions
+            pour maintenir un flux constant de requêtes sans saturer la mémoire.
+            """
+            while len(active_futures) < SUBMIT_BATCH:
+                url = next(urls_iter, None)
+                if url is None:
+                    break  # Plus d'URLs à soumettre
+                fut = pool.submit(fetch_page, session, limiter, url)
+                active_futures[fut] = url
 
-            initial_data = None
-            job_data = None
+        logger.info(
+            f"⏳ Streaming {len(urls_todo)} URLs | batch_size={SUBMIT_BATCH} | workers={workers}"
+        )
 
-            if res.html and len(res.html)< 1000:
-                print(f"HTML snippet for {res.url} : {res.html[:200]}")
+       # First queue set 
+        fill_queue()
 
-            if res.html:
-                initial_data = extract_initial_data_from_html(res.html)
+        # Main loop : we wait for at least one future to complete,
+        # process all completed futures, then resubmit to maintain SUBMIT_BATCH active.
+        while active_futures:
+            # Wait for at least one future to complete before processing
+            # FIRST_COMPLETED avoids busy-waiting and lets threads work
+            done, _ = wait(active_futures, return_when=FIRST_COMPLETED)
 
-                # We only pick the job_data if we successfully extracted the initial_data and if we're in the "jobs" segment.
-                if initial_data and segment == "jobs":
-                    job_data = pick_job_data(initial_data)
+            for fut in done:
+                res = fut.result()
+                #  Immediately release the Future from the active queue.
+                # Without this del, the dict would grow indefinitely even with wait().
+                del active_futures[fut]
 
-            if segment == "jobs":
-                key_id = compute_job_key(job_data, res.url)
-            else:
-                key_id = compute_company_key(res.url)
+                fetched_at = utc_now_iso()
+                processed += 1
 
-            # Convert the record to a datamodel instance, 
-            # which ensures consistent structure and types, and then to a dict for storage (via asdict).
-            # We use dataclasses for the bronze datamodels, so asdict is appropriate here (.dict is for pydantic).
-            record = asdict(wtt_bronze_datamodels(
-                source="welcometothejungle",
-                segment=segment,
-                url=res.url,
-                fetched_at=fetched_at,
-                status_code=res.status_code,
-                ok=res.ok,
-                error=res.error,
-                key=key_id,
-                initial_data=initial_data if initial_data else {},
-                job_data=job_data if job_data else {},
-                parser_version=1,
-            ))
-            
-            buffer.append(record)
+                # Log the first processing to confirm workers are active
+                if processed == 1:
+                    logger.info(
+                        f"🚀 First URL processed. Workers active. "
+                        f"Rate limiter at {limiter.rate} req/s"
+                    )
 
-            # HTML gz (optionnel)
-            if res.html and should_store_html(store_html_mode, res.ok, initial_data is not None):
-                html_key = (
-                    f"dt={dt}/run_id={run_id}/"
-                    f"segment={segment}_html/key={key_id}/page.html.gz"
-                )
-                try:
-                    storage.write_gzip_text(html_key, res.html)
-                except Exception as e:
-                    logger.exception("Failed writing html.gz | %s | %s", html_key, e)
+               # Data extract
+                initial_data = None
+                job_data = None
 
-            if res.ok:
-                ok += 1
-            else:
-                ko += 1
+                if res.html:
+                    initial_data = extract_initial_data_from_html(res.html)
+                    # We only pick the job_data if we successfully extracted the initial_data
+                    # and if we're in the "jobs" segment.
+                    if initial_data and segment == "jobs":
+                        job_data = pick_job_data(initial_data)
 
-            # Flush batch when buffer reaches the part size, to avoid keeping too much data in memory and to write incrementally to storage.
-            if len(buffer) >= part_size:
-                flush_buffer()
+                if segment == "jobs":
+                    key_id = compute_job_key(job_data, res.url)
+                else:
+                    key_id = compute_company_key(res.url)
 
-            # Callback de progression
-            if progress_callback:
-                progress_callback(segment, processed, total_urls, ok, ko)
+                # Convert the record to a datamodel instance,
+                # which ensures consistent structure and types, and then to a dict for storage (via asdict).
+                # We use dataclasses for the bronze datamodels, so asdict is appropriate here (.dict is for pydantic).
+                record = asdict(wtt_bronze_datamodels(
+                    source="welcometothejungle",
+                    segment=segment,
+                    url=res.url,
+                    fetched_at=fetched_at,
+                    status_code=res.status_code,
+                    ok=res.ok,
+                    error=res.error,
+                    key=key_id,
+                    initial_data=initial_data if initial_data else {},
+                    job_data=job_data if job_data else {},
+                    parser_version=1,
+                ))
 
-            # Progress (% + ETA)
-            if processed % progress_log_every == 0 or processed == total_urls:
-                elapsed = time.time() - start_time
-                rate = processed / elapsed if elapsed > 0 else 0.0
-                remaining = total_urls - processed
-                eta_seconds = remaining / rate if rate > 0 else 0.0
-                pct = (processed / total_urls) * 100 if total_urls > 0 else 0.0
-                
-                # Calculate batch duration (time since last checkpoint)
-                current_time = time.time()
-                batch_duration = current_time - last_checkpoint_time
+                # ── HTML gz optionnel ────────────────────────────────────────
+                # Store HTML before releasing res, as we need res.html for writing
+                if res.html and should_store_html(store_html_mode, res.ok, initial_data is not None):
+                    html_key = (
+                        f"dt={dt}/run_id={run_id}/"
+                        f"segment={segment}_html/key={key_id}/page.html.gz"
+                    )
+                    try:
+                        storage.write_gzip_text(html_key, res.html)
+                    except Exception as e:
+                        logger.exception("Failed writing html.gz | %s | %s", html_key, e)
 
-                logger.info(
-                    "Progress segment=%s | done=%d/%d (%.2f%%) | ok=%d ko=%d | rate=%.2f req/s | elapsed=%s | ETA=%s",
-                    segment,
-                    processed,
-                    total_urls,
-                    pct,
-                    ok,
-                    ko,
-                    rate,
-                    format_eta(elapsed),
-                    format_eta(eta_seconds),
-                )
-                
-                # Log progress to database for real-time monitoring
-                segment_task_id_progress = f"{segment_task_prefix}:event=progress:count={processed:06d}"
-                log_to_db(
-                    endpoint='welcome_to_the_jungle',
-                    level='INFO',
-                    message=f"⏳ Segment {segment}: {processed}/{total_urls} ({pct:.1f}%) - {ok} OK, {ko} erreurs - {rate:.2f} req/s - Écoulé: {format_eta(elapsed)} - ETA: {format_eta(eta_seconds)}",
-                    task_id=segment_task_id_progress,
-                    duration_sec=round(batch_duration, 2),
-                    records_count=processed,
-                    error_count=ko,
-                    extra_metadata={
-                        'segment': segment,
-                        'processed': processed,
-                        'total': total_urls,
-                        'percent': round(pct, 1),
-                        'ok': ok,
-                        'ko': ko,
-                        'rate_req_per_sec': round(rate, 2),
-                        'eta_seconds': round(eta_seconds, 1),
-                        'batch_duration': round(batch_duration, 2),
-                        'elapsed_total': round(elapsed, 2),
-                        'run_id': run_id
-                    }
-                )
-                
-                # Update checkpoint time
-                last_checkpoint_time = current_time
+                # ← Libère explicitement le FetchResult (contient res.html, potentiellement
+                # 100KB-1MB par page). Sans ce del, Python attend le prochain GC cycle
+                # pour libérer, ce qui peut représenter plusieurs GB en cours de traitement.
+                del res
+
+                # ── Compteurs ────────────────────────────────────────────────
+                if record.get("ok"):
+                    ok += 1
+                else:
+                    ko += 1
+
+                buffer.append(record)
+
+                # Flush batch when buffer reaches the part size,
+                # to avoid keeping too much data in memory and to write incrementally to storage.
+                if len(buffer) >= part_size:
+                    flush_buffer()
+
+                # Callback de progression (utilisé par l'API pour mise à jour temps réel)
+                if progress_callback:
+                    progress_callback(segment, processed, total_urls, ok, ko)
+
+                # ── Progress log (% + ETA) ───────────────────────────────────
+                if processed % progress_log_every == 0 or processed == total_urls:
+                    elapsed = time.time() - start_time
+                    rate = processed / elapsed if elapsed > 0 else 0.0
+                    remaining = total_urls - processed
+                    eta_seconds = remaining / rate if rate > 0 else 0.0
+                    pct = (processed / total_urls) * 100 if total_urls > 0 else 0.0
+
+                    # Calculate batch duration (time since last checkpoint)
+                    current_time = time.time()
+                    batch_duration = current_time - last_checkpoint_time
+
+                    logger.info(
+                        "Progress segment=%s | done=%d/%d (%.2f%%) | ok=%d ko=%d | "
+                        "rate=%.2f req/s | active_futures=%d | elapsed=%s | ETA=%s",
+                        segment,
+                        processed,
+                        total_urls,
+                        pct,
+                        ok,
+                        ko,
+                        rate,
+                        len(active_futures),
+                        format_eta(elapsed),
+                        format_eta(eta_seconds),
+                    )
+
+                    # Log progress to database for real-time monitoring
+                    segment_task_id_progress = f"{segment_task_prefix}:event=progress:count={processed:06d}"
+                    log_to_db(
+                        endpoint='welcome_to_the_jungle',
+                        level='INFO',
+                        message=(
+                            f"⏳ Segment {segment}: {processed}/{total_urls} ({pct:.1f}%) "
+                            f"- {ok} OK, {ko} erreurs - {rate:.2f} req/s "
+                            f"- Écoulé: {format_eta(elapsed)} - ETA: {format_eta(eta_seconds)}"
+                        ),
+                        task_id=segment_task_id_progress,
+                        duration_sec=round(batch_duration, 2),
+                        records_count=processed,
+                        error_count=ko,
+                        extra_metadata={
+                            'segment': segment,
+                            'processed': processed,
+                            'total': total_urls,
+                            'percent': round(pct, 1),
+                            'ok': ok,
+                            'ko': ko,
+                            'rate_req_per_sec': round(rate, 2),
+                            'eta_seconds': round(eta_seconds, 1),
+                            'batch_duration': round(batch_duration, 2),
+                            'elapsed_total': round(elapsed, 2),
+                            'active_futures': len(active_futures),
+                            'run_id': run_id
+                        }
+                    )
+
+                    # Update checkpoint time
+                    last_checkpoint_time = current_time
+
+            # Resoumettre de nouveaux URLs pour maintenir SUBMIT_BATCH futures actifs.
+            # C'est le cœur du sliding window : on ne soumet de nouveaux travaux
+            # qu'après avoir traité et libéré les futures terminés.
+            fill_queue()
 
     # Flush buffer at the end if there are any remaining records that haven't been written yet.
     flush_buffer()
@@ -721,15 +802,15 @@ def ingest_segment(
         "Done segment=%s | processed=%d | written=%d | ok=%d ko=%d | total_time=%s",
         segment, processed, total_written, ok, ko, format_eta(total_elapsed)
     )
-    
-    # Log to database
+
+    # Log final segment completion to database
     segment_task_id_end = f"{segment_task_prefix}:event=end"
     log_to_db(
         endpoint='welcome_to_the_jungle',
         level='INFO',
         message=(
-            f"✅ Segment {segment} terminé: {total_written} offres importées ({ok} OK, {ko} erreurs) - "
-            f"{format_eta(total_elapsed)}"
+            f"✅ Segment {segment} terminé: {total_written} offres importées "
+            f"({ok} OK, {ko} erreurs) - {format_eta(total_elapsed)}"
         ),
         task_id=segment_task_id_end,
         duration_sec=round(total_elapsed, 2),
@@ -745,7 +826,7 @@ def ingest_segment(
             'run_id': run_id
         }
     )
-    
+
     return {
         "segment": segment,
         "processed": processed,
@@ -754,4 +835,3 @@ def ingest_segment(
         "ko": ko,
         "elapsed_s": total_elapsed
     }
-

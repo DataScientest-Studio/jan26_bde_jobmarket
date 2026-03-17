@@ -197,7 +197,7 @@ def ingest_welcome_to_the_jungle(
         burst = int(os.getenv("WTTJ_BURST", "4"))
         limiter = RateLimiter(rate=rps, capacity=burst, logger=logger)
         
-        session = build_session()
+        session = build_session(workets=workers)
         
         # Initialize storage if not provided
         if storage is None:
@@ -363,7 +363,11 @@ def main_cli() -> None:
     burst = int(os.getenv("WTTJ_BURST", "4"))
     limiter = RateLimiter(rate=rps, capacity=burst, logger =logger)
 
-    session = build_session()
+    # Read workers and part_size from environment or use defaults
+    workers = int(os.getenv("WTTJ_WORKERS", "10"))
+    part_size = int(os.getenv("WTTJ_PART_SIZE", "500"))
+
+    session = build_session(workers=workers)
     
     # Storage (local / S3) — structure unifiée bronze/welcometothejungle
     storage = get_storage_from_env("bronze", "welcometothejungle")
@@ -411,10 +415,6 @@ def main_cli() -> None:
         )
 
     logger.info("Final URL counts | jobs=%d | companies=%d", len(jobs), len(companies))
-
-    # Read workers and part_size from environment or use defaults
-    workers = int(os.getenv("WTTJ_WORKERS", "10"))
-    part_size = int(os.getenv("WTTJ_PART_SIZE", "500"))
 
     # We then call the ingest_segment function for both jobs and companies.
     ingest_segment(
