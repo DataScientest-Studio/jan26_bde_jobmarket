@@ -91,8 +91,8 @@ services:
       "    
   jobmarket-api:
     cpus: "4.0"
-    mem_limit: 6g
-    memswap_limit: 6g  
+    mem_limit: 8g
+    memswap_limit: 16g  
     build:
       context: .
       dockerfile: Dockerfile.api
