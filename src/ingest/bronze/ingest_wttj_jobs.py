@@ -144,7 +144,6 @@ def ingest_welcome_to_the_jungle(
     max_companies: int = None,
     store_html_mode: str = None,
     provided_run_id: str = None,
-    resume_from_run_id: str = None,
     workers: int = None,
     part_size: int = None,
     progress_callback: Optional[Callable[[str, int, int, int, int], None]] = None
@@ -154,12 +153,11 @@ def ingest_welcome_to_the_jungle(
     
     Args:
         storage: Storage backend (optionnel, créé depuis env si non fourni)
-        mode: Mode d'ingestion (new, resume, incremental)
+        mode: Mode d'ingestion (new, resume)
         max_jobs: Limiter le nombre de jobs à traiter (0 = tous)
         max_companies: Limiter le nombre de companies à traiter (0 = tous)
         store_html_mode: Mode de stockage HTML (never, always, on_error)
         provided_run_id: Run ID à utiliser en mode resume
-        resume_from_run_id: Run ID source pour mode incremental
         workers: Nombre de workers concurrents (défaut: 10)
         part_size: Taille des chunks JSONL en nombre de records (défaut: 500)
         progress_callback: Callback appelé avec (segment, current, total, ok, ko)
@@ -175,7 +173,6 @@ def ingest_welcome_to_the_jungle(
         # Get configuration with defaults
         mode = mode or os.getenv("WTTJ_RUN_MODE", "new").lower().strip()
         provided_run_id = provided_run_id or (os.getenv("WTTJ_RUN_ID") or "").strip()
-        resume_from_run_id = resume_from_run_id or (os.getenv("WTTJ_RESUME_FROM_RUN_ID") or "").strip()
         store_html_mode = store_html_mode or os.getenv("WTTJ_STORE_HTML", "on_error")
         workers = workers if workers is not None else int(os.getenv("WTTJ_WORKERS", "10"))
         part_size = part_size if part_size is not None else int(os.getenv("WTTJ_PART_SIZE", "500"))
@@ -197,7 +194,7 @@ def ingest_welcome_to_the_jungle(
         burst = int(os.getenv("WTTJ_BURST", "4"))
         limiter = RateLimiter(rate=rps, capacity=burst, logger=logger)
         
-        session = build_session(workets=workers)
+        session = build_session(workers=workers)
         
         # Initialize storage if not provided
         if storage is None:
@@ -231,22 +228,6 @@ def ingest_welcome_to_the_jungle(
             skip_jobs = load_processed_urls(storage, jobs_prefix)
             skip_companies = load_processed_urls(storage, comp_prefix)
             logger.info("Resume mode | already_done jobs=%d | companies=%d", len(skip_jobs), len(skip_companies))
-        
-        elif mode == "incremental":
-            if not resume_from_run_id:
-                return {
-                    "success": False,
-                    "message": "Mode incremental nécessite un run_id source",
-                    "error": "WTTJ_RUN_MODE=incremental requires WTTJ_RESUME_FROM_RUN_ID"
-                }
-            jobs_prefix = f"dt={dt}/run_id={resume_from_run_id}/segment=jobs_raw/"
-            comp_prefix = f"dt={dt}/run_id={resume_from_run_id}/segment=companies_raw/"
-            skip_jobs = load_processed_urls(storage, jobs_prefix)
-            skip_companies = load_processed_urls(storage, comp_prefix)
-            logger.info(
-                "Incremental mode | base_run_id=%s | skip jobs=%d | companies=%d",
-                resume_from_run_id, len(skip_jobs), len(skip_companies)
-            )
         
         logger.info("Final URL counts | jobs=%d | companies=%d", len(jobs), len(companies))
         

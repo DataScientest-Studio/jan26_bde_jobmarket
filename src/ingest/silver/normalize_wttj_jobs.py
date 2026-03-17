@@ -62,6 +62,13 @@ def _normalize_profession_value(value):
     return str(value)
 
 def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeResult:
+    """ 
+    Normalize WTTJ jobs for a given date (dt) and save to silver.
+    Args:        
+    - dt: Date to process (format YYYYMMDD). If "latest" or empty, processes the latest date available in bronze.
+    - output_format: Format to save the normalized data (parquet or jsonl).    
+
+    """
     job_id = f"wttj-normalize-{dt}-{uuid.uuid4().hex[:8]}"
     status = "RUNNING"
     files: List[str] = []
