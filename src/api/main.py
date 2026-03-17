@@ -40,6 +40,7 @@ TOP_K = int(os.getenv("TOP_K", "5"))
 
 import uuid
 import time
+import threading
 import pandas as pd
 import logging
 import json
@@ -62,6 +63,8 @@ from src.ingest.bronze.ingest_wttj_jobs import ingest_welcome_to_the_jungle
 from src.ingest.bronze.ingest_wttj_collect_urls import collect_sitemap_urls
 from src.ingest.bronze.ingest_wttj_job_opt import ingest_welcome_to_the_jungle_opt
 from src.ingest.silver.merge_ft_wttj_datasets import merge_ft_wttj_datasets
+from src.ingest.silver.calculate_offer_status import run_status_tracking
+from src.ingest.silver.generate_status_evolution_datasets import run_status_evolution_parquet_generation
 
 # Observability & utilities
 from src.observability.job_store import JobStore
@@ -80,6 +83,8 @@ from src.api.models import (
     MergeDatasetResponse,
     NormalizeWTTJResponse,
     NormalizeFTResponse,
+    StatusTrackingResponse,
+    StatusEvolutionResponse,
     JSONOnlyFilter
 )
 
@@ -123,9 +128,10 @@ Use the endpoints below to test the API directly from this interface.
 # Global in-memory state
 # ------------------------------------
 
-# ML model artifacts — loaded once at startup to avoid reloading MinIO/joblib on each request
+# ML model artifacts — lazy loaded on first predict call
 ARTIFACTS: Dict[str, Any] = {}
 rome_model = None
+_model_lock = threading.Lock()
 
 # In-memory task tracker — holds status of all running/recent background tasks
 # Note: lost on container restart; use JobStore for persistence across restarts
@@ -294,43 +300,50 @@ def set_task(
 # ============================================================
 
 @app.on_event("startup")
-def _startup_load_model():
+def _startup():
     """
-    Load ML model artifacts at startup.
-    Avoids reloading MinIO on each prediction request.
-
-    On failure: API continues without crashing (model endpoints return 503).
-    Also marks stale jobs in JobStore (tasks that were RUNNING before restart).
+    Startup handler — marks stale jobs from before last restart.
+    ML model is NOT loaded here: it is lazy-loaded on first predict call.
     """
-    global ARTIFACTS, rome_model
-    logger.info("API starting — loading model artifacts...")
-    try:
-        ARTIFACTS = load_artifacts()
-        logger.info(f"Model loaded successfully: {MODEL_NAME} v{ARTIFACTS['version']}")
-        rome_model = get_rome_model()
-        logger.info(f"ROME model loaded: {len(rome_model) if rome_model else 0} entries")
-
-        # Emit structured startup event if Grafana logging is enabled
-        if ENABLE_GRAFANA_LOGS:
-            emit_structured_log({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "event_type": "model_loaded",
-                "model_name": MODEL_NAME,
-                "version": ARTIFACTS['version']
-            })
-
-        # Mark as stale any jobs that were RUNNING before the last restart
-        if job_store.enabled:
+    logger.info("API starting...")
+    if job_store.enabled:
+        try:
             stale_count = job_store.mark_stale(STALE_JOB_MINUTES)
             if stale_count:
                 logger.warning("Marked stale jobs on startup: %s", stale_count)
+        except Exception as e:
+            logger.warning("Could not mark stale jobs on startup: %s", e)
 
-    except Exception as e:
-        ARTIFACTS = {}
-        rome_model = {}
-        logger.warning(
-            "Model unavailable at startup (API continues without crashing): %s", e
-        )
+
+def _ensure_model_loaded() -> None:
+    """
+    Lazy-load ML model artifacts on first predict call.
+    Thread-safe: uses a lock to prevent concurrent loads.
+    On failure: ARTIFACTS stays empty and predict returns 503.
+    """
+    global ARTIFACTS, rome_model
+    if ARTIFACTS:
+        return
+    with _model_lock:
+        if ARTIFACTS:  # re-check after acquiring lock
+            return
+        logger.info("Loading ML model artifacts (first predict call)...")
+        try:
+            ARTIFACTS = load_artifacts()
+            logger.info(f"Model loaded successfully: {MODEL_NAME} v{ARTIFACTS['version']}")
+            rome_model = get_rome_model()
+            logger.info(f"ROME model loaded: {len(rome_model) if rome_model else 0} entries")
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "model_loaded",
+                    "model_name": MODEL_NAME,
+                    "version": ARTIFACTS['version'],
+                })
+        except Exception as e:
+            ARTIFACTS = {}
+            rome_model = {}
+            logger.warning("Model loading failed: %s", e)
 
 
 # ============================================================
@@ -1336,6 +1349,251 @@ def run_merge_datasets_task(
             })
 
 
+def run_status_tracking_task(
+    task_id: str,
+    mode: str,
+    output_prefix: Optional[str],
+) -> None:
+    """Background wrapper for offer status lifecycle tracking with task tracking."""
+    start_monotonic = time.monotonic()
+    started_at = datetime.now(timezone.utc)
+
+    if ENABLE_GRAFANA_LOGS:
+        emit_structured_log({
+            "timestamp": started_at.isoformat(),
+            "event_type": "job_started",
+            "run_id": task_id,
+            "source": "status_tracking",
+            "status": STATUS_RUNNING,
+            "progress_pct": 0,
+            "records_count": 0,
+            "pages_count": 0,
+            "errors_count": 0,
+        })
+
+    try:
+        log_to_db('status_tracking', 'INFO', f"Starting status tracking (mode={mode})", task_id=task_id)
+        result = run_status_tracking(mode=mode, output_prefix=output_prefix)
+        duration_sec = time.monotonic() - start_monotonic
+
+        if result["success"]:
+            result_payload = {
+                "mode": result.get("mode"),
+                "output_key": result.get("output_key"),
+                "merged_dt": result.get("merged_dt"),
+                "total_status_records": result.get("total_status_records"),
+                "dates_processed": result.get("dates_processed"),
+                "elapsed_sec": result.get("elapsed_sec"),
+            }
+            set_task(
+                task_id,
+                progress_pct=100,
+                message=result["message"],
+                records_count=result.get("total_status_records", 0),
+                errors_count=0,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+            log_to_db(
+                'status_tracking', 'INFO',
+                f"Status tracking completed (mode={mode}): {result.get('total_status_records', 0)} records - {duration_sec:.2f}s",
+                task_id=task_id,
+                duration_sec=round(duration_sec, 2),
+                records_count=result.get('total_status_records', 0),
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_finished",
+                    "run_id": task_id,
+                    "source": "status_tracking",
+                    "status": STATUS_SUCCESS,
+                    "progress_pct": 100,
+                    "records_count": result.get("total_status_records", 0),
+                    "pages_count": 0,
+                    "errors_count": 0,
+                    "duration_sec": round(duration_sec, 2),
+                })
+        else:
+            error_text = result.get("error", result.get("message", "Status tracking failed"))
+            set_task(
+                task_id,
+                message=result.get("message", "Status tracking failed"),
+                status=STATUS_FAILED,
+                completed_at=datetime.now(timezone.utc),
+                error=error_text,
+            )
+            log_to_db('status_tracking', 'ERROR', f"Status tracking failed: {error_text}", task_id=task_id, error=error_text)
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, result=result, error_text=error_text)
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_failed",
+                    "run_id": task_id,
+                    "source": "status_tracking",
+                    "status": STATUS_FAILED,
+                    "progress_pct": None,
+                    "records_count": 0,
+                    "pages_count": 0,
+                    "errors_count": 1,
+                    "duration_sec": round(duration_sec, 2),
+                })
+
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        set_task(
+            task_id,
+            message=f"Error: {error_text}",
+            status=STATUS_FAILED,
+            completed_at=datetime.now(timezone.utc),
+            error=error_text,
+        )
+        log_to_db('status_tracking', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+        if ENABLE_GRAFANA_LOGS:
+            emit_structured_log({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": "job_failed",
+                "run_id": task_id,
+                "source": "status_tracking",
+                "status": STATUS_FAILED,
+                "progress_pct": None,
+                "records_count": 0,
+                "pages_count": 0,
+                "errors_count": 1,
+                "duration_sec": round(duration_sec, 2),
+            })
+
+
+def run_status_evolution_task(
+    task_id: str,
+    mode: str,
+    output_prefix: Optional[str],
+) -> None:
+    """Background wrapper for status evolution parquet generation with task tracking."""
+    start_monotonic = time.monotonic()
+    started_at = datetime.now(timezone.utc)
+
+    if ENABLE_GRAFANA_LOGS:
+        emit_structured_log({
+            "timestamp": started_at.isoformat(),
+            "event_type": "job_started",
+            "run_id": task_id,
+            "source": "status_evolution",
+            "status": STATUS_RUNNING,
+            "progress_pct": 0,
+            "records_count": 0,
+            "pages_count": 0,
+            "errors_count": 0,
+        })
+
+    try:
+        log_to_db('status_evolution', 'INFO', f"Starting status evolution parquet generation (mode={mode})", task_id=task_id)
+        result = run_status_evolution_parquet_generation(mode=mode, output_prefix=output_prefix)
+        duration_sec = time.monotonic() - start_monotonic
+
+        if result["success"]:
+            result_payload = {
+                "mode": mode,
+                "analysis_dt": result.get("analysis_dt"),
+                "complete_key": result.get("complete_key"),
+                "timeline_key": result.get("timeline_key"),
+                "rows_complete": result.get("rows_complete"),
+                "rows_timeline": result.get("rows_timeline"),
+                "elapsed_sec": result.get("elapsed_sec"),
+            }
+            set_task(
+                task_id,
+                progress_pct=100,
+                message=f"Status evolution completed: {result.get('rows_complete', 0):,} offers, {result.get('rows_timeline', 0):,} timeline rows",
+                records_count=result.get("rows_timeline", 0),
+                errors_count=0,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+            log_to_db(
+                'status_evolution', 'INFO',
+                f"Status evolution completed (mode={mode}): complete={result.get('rows_complete', 0):,}, timeline={result.get('rows_timeline', 0):,} - {duration_sec:.2f}s",
+                task_id=task_id,
+                duration_sec=round(duration_sec, 2),
+                records_count=result.get('rows_timeline', 0),
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_finished",
+                    "run_id": task_id,
+                    "source": "status_evolution",
+                    "status": STATUS_SUCCESS,
+                    "progress_pct": 100,
+                    "records_count": result.get("rows_timeline", 0),
+                    "pages_count": 0,
+                    "errors_count": 0,
+                    "duration_sec": round(duration_sec, 2),
+                })
+        else:
+            error_text = result.get("error", "Status evolution generation failed")
+            set_task(
+                task_id,
+                message=f"Status evolution failed: {error_text}",
+                status=STATUS_FAILED,
+                completed_at=datetime.now(timezone.utc),
+                error=error_text,
+            )
+            log_to_db('status_evolution', 'ERROR', f"Status evolution failed: {error_text}", task_id=task_id, error=error_text)
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, result=result, error_text=error_text)
+            if ENABLE_GRAFANA_LOGS:
+                emit_structured_log({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "job_failed",
+                    "run_id": task_id,
+                    "source": "status_evolution",
+                    "status": STATUS_FAILED,
+                    "progress_pct": None,
+                    "records_count": 0,
+                    "pages_count": 0,
+                    "errors_count": 1,
+                    "duration_sec": round(duration_sec, 2),
+                })
+
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        set_task(
+            task_id,
+            message=f"Error: {error_text}",
+            status=STATUS_FAILED,
+            completed_at=datetime.now(timezone.utc),
+            error=error_text,
+        )
+        log_to_db('status_evolution', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+        if ENABLE_GRAFANA_LOGS:
+            emit_structured_log({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_type": "job_failed",
+                "run_id": task_id,
+                "source": "status_evolution",
+                "status": STATUS_FAILED,
+                "progress_pct": None,
+                "records_count": 0,
+                "pages_count": 0,
+                "errors_count": 1,
+                "duration_sec": round(duration_sec, 2),
+            })
+
+
 # ============================================================
 # SECTION 4 — Monitoring endpoints
 # ============================================================
@@ -1546,13 +1804,11 @@ def predict(req: PredictRequest):
     """
     logger.info(f"Prediction request — title: {req.intitule[:50] if req.intitule else 'N/A'}")
 
+    _ensure_model_loaded()
     if not ARTIFACTS:
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Model artifacts are not loaded yet. "
-                "Run training or upload model artifacts, then restart the API."
-            ),
+            detail="Model artifacts unavailable. Check MinIO connectivity or re-upload model artifacts.",
         )
 
     text = build_text_payload(
@@ -1568,7 +1824,7 @@ def predict(req: PredictRequest):
 @app.post(
     "/ingest/rome-metiers",
     response_model=IngestResponse,
-    tags=["Ingestion"],
+    tags=["Extraction"],
     summary="Ingest ROME job codes",
     description="""Triggers ingestion of the complete ROME job nomenclature from the France Travail API.
 
@@ -1614,7 +1870,7 @@ async def ingest_rome_metiers_endpoint(
 @app.post(
     "/ingest/france-travail-offers",
     response_model=IngestOffersResponse,
-    tags=["Ingestion"],
+    tags=["Extraction"],
     summary="Ingest France Travail job offers",
     description="""Triggers complete ingestion of France Travail job offers into the bronze layer.
 
@@ -1667,7 +1923,7 @@ async def ingest_france_travail_offers_endpoint(
 @app.post(
     "/ingest/welcome-to-jungle",
     response_model=IngestWTTJResponse,
-    tags=["Ingestion"],
+    tags=["Extraction"],
     summary="Ingest Welcome to the Jungle job offers",
     description="""Triggers ingestion of Welcome to the Jungle job offers into the bronze layer.
 
@@ -1766,7 +2022,7 @@ async def ingest_wttj_endpoint(
 @app.post(
     "/ingest/welcome-to-the-jungle/sitemaps",
     response_model=CollectSitemapsResponse,
-    tags=["Ingestion"],
+    tags=["Extraction"],
     summary="Collect URLs from WTTJ sitemaps",
     description="""Collects job page URLs from Welcome to the Jungle XML sitemaps.
 
@@ -1840,7 +2096,7 @@ async def collect_sitemaps_endpoint(
 @app.post(
     "/ingest/welcome-to-the-jungle/jobs-optimized",
     response_model=IngestWTTJOptResponse,
-    tags=["Ingestion"],
+    tags=["Extraction"],
     summary="Ingest WTTJ jobs via optimized crawler",
     description="""Triggers optimized Welcome to the Jungle job ingestion via REST API crawler.
 
@@ -1966,7 +2222,7 @@ async def ingest_wttj_jobs_optimized_endpoint(
 @app.post(
     "/data/normalize-wttj-jobs",
     response_model=NormalizeWTTJResponse,
-    tags=["Data Processing"],
+    tags=["Transformation"],
     summary="Normalize WTTJ bronze jobs data to a silver format and enrich it with predicted ROME codes",
     description="Reads all bronze job_raw files for a given dt, clean and normalize data, enriches it with predicted ROME codes and save it in a silver format with the same dt. " \
     "Write silver layer preserving directory structure. " \
@@ -2010,7 +2266,7 @@ async def normalize_wttj_jobs_endpoint(
 @app.post(
     "/data/normalize-ft-jobs",
     response_model=NormalizeFTResponse,
-    tags=["Data Processing"],
+    tags=["Transformation"],
     summary="Normalize FT bronze jobs data to a silver format",
     description="Reads all FT bronze job_raw files for a given dt, clean and normalize data and save it in a silver format with the same dt."
 )
@@ -2055,7 +2311,7 @@ async def normalize_ft_jobs_endpoint(
 @app.post(
     "/data/merge-datasets",
     response_model=MergeDatasetResponse,
-    tags=["Data Processing"],
+    tags=["Transformation"],
     summary="Merge FT and WTTJ datasets",
     description="""Triggers the merge of France Travail and Welcome to the Jungle datasets.
 
@@ -2127,3 +2383,141 @@ async def merge_datasets_endpoint(
         except Exception as e:
             logger.error(f"Merge error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Merge error: {str(e)}")
+
+
+@app.post(
+    "/data/status-tracking",
+    response_model=StatusTrackingResponse,
+    tags=["Transformation"],
+    summary="Track offer lifecycle status across consecutive merged datasets",
+    description="""Computes and saves the offer status history dataset from merged silver data.
+
+**Incremental mode** (default, fast — daily pipeline):
+- Loads the two most recent merged datasets
+- Compares offer IDs to detect new / disappeared / reappeared offers
+- Appends a status snapshot to `silver/status_history/dt={merged_dt}/`
+
+**Global recalculation mode** (slow — full history replay):
+- Replays all merged datasets chronologically
+- Overwrites all `silver/status_history/dt=*/` partitions
+- Use after bug fixes or data corrections
+
+**Output schema per record:** `id`, `source`, `status` (published/unpublished/reappeared), `published_at`, `unpublished_at`, `reappeared_at`, `first_seen_dt`, `last_seen_dt`
+"""
+)
+async def status_tracking_endpoint(
+    background_tasks: BackgroundTasks,
+    mode: str = Query(default="incremental", description="Tracking mode: 'incremental' (default, fast daily run) or 'global_recalc' (full history replay, expensive)"),
+    output_prefix: Optional[str] = Query(default=None, description="Prefix for the output parquet file (default: offer_status.parquet)"),
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    logger.info(f"Status tracking request (mode={mode}, background={background})")
+
+    if background:
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "status_tracking",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Status tracking in progress (mode: {mode})...",
+            "params": {"mode": mode, "output_prefix": output_prefix},
+        }
+        if job_store.enabled:
+            job_store.create(
+                run_id=task_id,
+                job_type="data",
+                source="status_tracking",
+                params={"background": True, "mode": mode, "output_prefix": output_prefix},
+                message=f"Status tracking in progress (mode: {mode})...",
+            )
+        background_tasks.add_task(run_status_tracking_task, task_id, mode, output_prefix)
+        return StatusTrackingResponse(success=True, message=f"Status tracking started in background (task_id: {task_id})", mode=mode)
+    else:
+        try:
+            result = run_status_tracking(mode=mode, output_prefix=output_prefix)
+            return StatusTrackingResponse(
+                success=result["success"],
+                message=result["message"],
+                mode=result.get("mode"),
+                output_key=result.get("output_key"),
+                run_json_key=result.get("run_json_key"),
+                merged_dt=result.get("merged_dt"),
+                total_status_records=result.get("total_status_records"),
+                dates_processed=result.get("dates_processed"),
+                status_stats=result.get("status_stats"),
+                elapsed_sec=result.get("elapsed_sec"),
+            )
+        except Exception as e:
+            logger.error(f"Status tracking error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Status tracking error: {str(e)}")
+
+
+@app.post(
+    "/data/status-evolution",
+    response_model=StatusEvolutionResponse,
+    tags=["Transformation"],
+    summary="Generate status evolution analytics datasets",
+    description="""Generates the analytics parquet datasets from status_history and merged snapshots.
+
+**Incremental mode** (default, fast — daily pipeline):
+- Loads only the latest status snapshot and the latest merged dataset
+- Produces `complete_dataset` (offers + status) and `status_timeline` for that snapshot
+
+**Recompute all mode** (slow — full history rebuild):
+- Loads all status snapshots and concatenates them into a full timeline
+- Rebuilds all `complete_dataset` and `status_timeline` partitions from scratch
+
+**Outputs** (written under `silver/status_analytics`):
+- `dt={analysis_dt}/segment=complete_dataset/complete_offers_with_status.parquet`
+- `dt={analysis_dt}/segment=status_timeline/status_timeline.parquet`
+- `dt={analysis_dt}/run_id={job_id}/run.json`
+"""
+)
+async def status_evolution_endpoint(
+    background_tasks: BackgroundTasks,
+    mode: str = Query(default="incremental", description="Generation mode: 'incremental' (latest snapshot only, fast) or 'recompute_all' (full timeline rebuild, slow)"),
+    output_prefix: Optional[str] = Query(default=None, description="Optional prefix for output parquet filenames (avoids overwriting previous runs)"),
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    logger.info(f"Status evolution parquet generation request (mode={mode}, background={background})")
+
+    if background:
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "status_evolution",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Status evolution generation in progress (mode: {mode})...",
+            "params": {"mode": mode, "output_prefix": output_prefix},
+        }
+        if job_store.enabled:
+            job_store.create(
+                run_id=task_id,
+                job_type="data",
+                source="status_evolution",
+                params={"background": True, "mode": mode, "output_prefix": output_prefix},
+                message=f"Status evolution generation in progress (mode: {mode})...",
+            )
+        background_tasks.add_task(run_status_evolution_task, task_id, mode, output_prefix)
+        return StatusEvolutionResponse(success=True, message=f"Status evolution generation started in background (task_id: {task_id})", mode=mode)
+    else:
+        try:
+            result = run_status_evolution_parquet_generation(mode=mode, output_prefix=output_prefix)
+            return StatusEvolutionResponse(
+                success=result["success"],
+                message="Status evolution completed" if result["success"] else "Status evolution failed",
+                job_id=result.get("job_id"),
+                analysis_dt=result.get("analysis_dt"),
+                mode=mode,
+                complete_key=result.get("complete_key"),
+                timeline_key=result.get("timeline_key"),
+                run_key=result.get("run_key"),
+                rows_complete=result.get("rows_complete"),
+                rows_timeline=result.get("rows_timeline"),
+                elapsed_sec=result.get("elapsed_sec"),
+            )
+        except Exception as e:
+            logger.error(f"Status evolution error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Status evolution error: {str(e)}")

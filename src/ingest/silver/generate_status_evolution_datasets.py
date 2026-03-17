@@ -164,17 +164,17 @@ def run_status_evolution_parquet_generation(
 	output_prefix: Optional[str] = None,
 ) -> Dict:
 	"""
-	Phase 1: generate dataset parquets only (complete_dataset + status_timeline).
+	Generate dataset parquets only (complete_dataset + status_timeline).
 
 	This function generates the raw data parquets without computing KPIs or charts.
-	All analytical computations (KPIs, visualizations) are deferred to Phase 2.
+	All analytical computations (KPIs, visualizations) are deferred.
 
 	Modes:
 	- incremental: only processes the latest snapshot (fast, for daily prod)
 	- recompute_all: rebuilds the full timeline (for validation or massive correction)
 	 """
 	logger.info("=" * 80)
-	logger.info(f"STATUS EVOLUTION ANALYTICS - PHASE 1: DATASET PARQUET GENERATION (mode={mode})")
+	logger.info(f"STATUS EVOLUTION ANALYTICS : DATASET PARQUET GENERATION (mode={mode})")
 	logger.info("=" * 80)
 	job_id = f"status-analytics-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
 	start_time = time.time()
@@ -191,12 +191,12 @@ def run_status_evolution_parquet_generation(
 		log_to_db(
 			endpoint="generate_status_evolution_datasets",
 			level="INFO",
-			message=f"Start status evolution dataset generation Phase 1: {job_id}",
+			message=f"Start status evolution dataset generation : {job_id}",
 			task_id=job_id,
 			status="RUNNING",
 		)
 	except Exception as e:
-		logger.warning("[generate_status_evolution_datasets Phase 1] log_to_db start failed: %s", e)
+		logger.warning("[generate_status_evolution_datasets] log_to_db start failed: %s", e)
 
 	# Load all status snapshot files and build timeline according to mode
 	status_files = _list_status_snapshot_files(storage_status)
@@ -293,7 +293,7 @@ def run_status_evolution_parquet_generation(
 		logger.warning("Failed to write analytics run.json: %s", e)
 
 	if success:
-		logger.info("Phase 1: Dataset parquet generation completed successfully")
+		logger.info("Dataset parquet generation completed successfully")
 		logger.info("Complete dataset rows: %s", f"{len(complete_latest_df):,}")
 		logger.info("Timeline rows: %s", f"{len(timeline_df):,}")
 		try:
@@ -301,7 +301,7 @@ def run_status_evolution_parquet_generation(
 				endpoint="generate_status_evolution_datasets",
 				level="INFO",
 				message=(
-					f"Status analytics Phase 1 completed: complete={len(complete_latest_df):,}, "
+					f"Status analytics completed: complete={len(complete_latest_df):,}, "
 					f"timeline={len(timeline_df):,}"
 				),
 				task_id=job_id,
@@ -311,20 +311,20 @@ def run_status_evolution_parquet_generation(
 				output_key=complete_key,
 			)
 		except Exception as e:
-			logger.warning("[generate_status_evolution_datasets Phase 1] log_to_db success failed: %s", e)
+			logger.warning("[generate_status_evolution_datasets] log_to_db success failed: %s", e)
 	else:
-		logger.error("Phase 1: Analytics failed while saving dataset outputs")
+		logger.error("Analytics failed while saving dataset outputs")
 		try:
 			log_to_db(
 				endpoint="generate_status_evolution_datasets",
 				level="ERROR",
-				message="Phase 1: Failed to save dataset outputs",
+				message="Failed to save dataset outputs",
 				task_id=job_id,
 				status="ERROR",
 				duration_sec=elapsed,
 			)
 		except Exception as e:
-			logger.warning("[generate_status_evolution_datasets Phase 1] log_to_db error failed: %s", e)
+			logger.warning("[generate_status_evolution_datasets] log_to_db error failed: %s", e)
 
 	return {
 		"success": success,
@@ -449,6 +449,7 @@ def main() -> None:
 	if args.mode == "daily_reconstruction":
 		run_daily_reconstruction()
 		raise SystemExit(0)
+	
 	result = run_status_evolution_parquet_generation(mode=args.mode, output_prefix=args.output_prefix)
 
 	if not result.get("success"):
