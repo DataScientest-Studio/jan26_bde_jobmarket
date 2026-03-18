@@ -107,6 +107,25 @@ def _build_geo_frame() -> pd.DataFrame:
     return agg
 
 
+def _bootstrap_schema(conn) -> None:
+    """Execute the gold star schema DDL (idempotent — CREATE IF NOT EXISTS).
+
+    psycopg3 does not allow multiple statements in a single cursor.execute()
+    call. Single-line comments are stripped before splitting on ';' to avoid
+    cutting inside comment text that contains semicolons.
+    """
+    import re
+    bootstrap_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "postgres", "init", "003_gold_star_schema.sql")
+    with open(bootstrap_path, "r", encoding="utf-8") as f:
+        bootstrap_sql = f.read()
+    sql_no_comments = re.sub(r"--[^\n]*", "", bootstrap_sql)
+    with conn.cursor() as cur:
+        for stmt in sql_no_comments.split(";"):
+            if stmt.strip():
+                cur.execute(stmt)
+    conn.commit()
+
+
 def load_geo_dim() -> dict:
     """Upsert gold.dim_geo from the local INSEE communes CSV.
 
@@ -124,16 +143,9 @@ def load_geo_dim() -> dict:
     df = _build_geo_frame()
     logger.info("Geo frame built: %d postal codes", len(df))
 
-    bootstrap_path = os.path.join("postgres", "init", "003_gold_star_schema.sql")
-    with open(bootstrap_path, "r", encoding="utf-8") as f:
-        bootstrap_sql = f.read()
-
     upserted = 0
     with psycopg.connect(dsn, autocommit=False) as conn:
-        with conn.cursor() as cur:
-            cur.execute(bootstrap_sql)
-        conn.commit()
-
+        _bootstrap_schema(conn)
         with conn.cursor() as cur:
             for _, row in df.iterrows():
                 cur.execute(
