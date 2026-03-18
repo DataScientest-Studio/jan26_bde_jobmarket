@@ -571,12 +571,21 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
 
 
 def _bootstrap_sql(conn) -> None:
-    bootstrap_path = os.path.join("postgres", "init", "003_gold_star_schema.sql")
+    """Execute the gold star schema DDL (idempotent — CREATE IF NOT EXISTS).
+
+    psycopg3 does not allow multiple statements in a single cursor.execute()
+    call. Single-line comments are stripped before splitting on ';' to avoid
+    cutting inside comment text that contains semicolons.
+    """
+    bootstrap_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "postgres", "init", "003_gold_star_schema.sql")
     with open(bootstrap_path, "r", encoding="utf-8") as f:
         sql = f.read()
-
+    sql_no_comments = re.sub(r"--[^\n]*", "", sql)
     with conn.cursor() as cur:
-        cur.execute(sql)
+        for stmt in sql_no_comments.split(";"):
+            if stmt.strip():
+                cur.execute(stmt)
+    conn.commit()
 
 
 
