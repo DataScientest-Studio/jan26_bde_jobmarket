@@ -8,6 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY postgres ./postgres
 
 # Créer le dossier logs
 RUN mkdir -p logs
