@@ -159,10 +159,11 @@ class Silver_Datamodel:
         return list(dummy.to_dict().keys())
 
 class NormalizeResult:
-    def __init__(self, job_id, status, dt, output_format, files, errors):
+    def __init__(self, job_id, status, dt, output_format, files, errors, rows: int = 0):
         self.job_id = job_id
         self.status = status
         self.dt = dt
         self.format = output_format
         self.files = files
         self.errors = errors
+        self.rows = rows  # nombre de lignes produites dans le fichier silver
