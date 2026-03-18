@@ -65,6 +65,9 @@ from src.ingest.bronze.ingest_wttj_job_opt import ingest_welcome_to_the_jungle_o
 from src.ingest.silver.merge_ft_wttj_datasets import merge_ft_wttj_datasets
 from src.ingest.silver.calculate_offer_status import run_status_tracking
 from src.ingest.silver.generate_status_evolution_datasets import run_status_evolution_parquet_generation, run_daily_reconstruction
+from src.ingest.gold.load_geo_dim import load_geo_dim
+from src.ingest.gold.load_naf_dim import load_naf_dim
+from src.ingest.gold.load_star_schema import run_loader as run_star_schema_loader
 
 # Observability & utilities
 from src.observability.job_store import JobStore
@@ -85,6 +88,8 @@ from src.api.models import (
     NormalizeFTResponse,
     StatusTrackingResponse,
     StatusEvolutionResponse,
+    DimLoadResponse,
+    StarSchemaLoadResponse,
     JSONOnlyFilter
 )
 
@@ -1598,6 +1603,125 @@ def run_status_evolution_task(
             })
 
 
+def run_load_geo_dim_task(task_id: str) -> None:
+    """Background wrapper for gold.dim_geo upsert with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        log_to_db('load_geo_dim', 'INFO', "Starting dim_geo upsert", task_id=task_id)
+        result = load_geo_dim()
+        duration_sec = time.monotonic() - start_monotonic
+        result_payload = {"upserted": result["upserted"], "duration_sec": round(duration_sec, 2)}
+        set_task(
+            task_id,
+            progress_pct=100,
+            message=f"dim_geo upserted: {result['upserted']:,} rows",
+            records_count=result["upserted"],
+            errors_count=0,
+            status=STATUS_SUCCESS,
+            completed_at=datetime.now(timezone.utc),
+            result=result_payload,
+        )
+        log_to_db('load_geo_dim', 'INFO', f"dim_geo upserted: {result['upserted']:,} rows in {duration_sec:.2f}s",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), records_count=result["upserted"])
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        logger.error(f"run_load_geo_dim_task failed: {error_text}", exc_info=True)
+        set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
+                 completed_at=datetime.now(timezone.utc), error=error_text)
+        log_to_db('load_geo_dim', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
+def run_load_naf_dim_task(task_id: str) -> None:
+    """Background wrapper for gold.dim_naf upsert with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        log_to_db('load_naf_dim', 'INFO', "Starting dim_naf upsert", task_id=task_id)
+        result = load_naf_dim()
+        duration_sec = time.monotonic() - start_monotonic
+        result_payload = {"upserted": result["upserted"], "duration_sec": round(duration_sec, 2)}
+        set_task(
+            task_id,
+            progress_pct=100,
+            message=f"dim_naf upserted: {result['upserted']:,} rows",
+            records_count=result["upserted"],
+            errors_count=0,
+            status=STATUS_SUCCESS,
+            completed_at=datetime.now(timezone.utc),
+            result=result_payload,
+        )
+        log_to_db('load_naf_dim', 'INFO', f"dim_naf upserted: {result['upserted']:,} rows in {duration_sec:.2f}s",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), records_count=result["upserted"])
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        logger.error(f"run_load_naf_dim_task failed: {error_text}", exc_info=True)
+        set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
+                 completed_at=datetime.now(timezone.utc), error=error_text)
+        log_to_db('load_naf_dim', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
+def run_load_star_schema_task(task_id: str, source_mode: str, incremental: bool) -> None:
+    """Background wrapper for gold star schema load (fact + dimensions) with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        log_to_db('load_star_schema', 'INFO', f"Starting star schema load (source_mode={source_mode}, incremental={incremental})", task_id=task_id)
+        result = run_star_schema_loader(source_mode=source_mode, incremental=incremental)
+        duration_sec = time.monotonic() - start_monotonic
+
+        if not result:
+            set_task(task_id, progress_pct=100, message="Star schema load: no new snapshot to import (already up to date)",
+                     status=STATUS_SUCCESS, completed_at=datetime.now(timezone.utc), result={"skipped": True})
+            log_to_db('load_star_schema', 'INFO', "No new snapshot to import", task_id=task_id, duration_sec=round(duration_sec, 2))
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result={"skipped": True})
+            return
+
+        result_payload = {
+            "run_id": result.get("run_id"),
+            "snapshot_dt": result.get("snapshot_dt"),
+            "staging_rows": result.get("staging_rows"),
+            "fact_rows": result.get("fact_rows"),
+            "duration_sec": round(duration_sec, 2),
+        }
+        set_task(
+            task_id,
+            progress_pct=100,
+            message=f"Star schema loaded: {result.get('staging_rows', 0):,} staging rows → {result.get('fact_rows', 0):,} fact rows",
+            records_count=result.get("fact_rows", 0),
+            errors_count=0,
+            status=STATUS_SUCCESS,
+            completed_at=datetime.now(timezone.utc),
+            result=result_payload,
+        )
+        log_to_db('load_star_schema', 'INFO',
+                  f"Star schema loaded (source_mode={source_mode}): staging={result.get('staging_rows', 0):,}, fact={result.get('fact_rows', 0):,} - {duration_sec:.2f}s",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), records_count=result.get('fact_rows', 0))
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        logger.error(f"run_load_star_schema_task failed: {error_text}", exc_info=True)
+        set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
+                 completed_at=datetime.now(timezone.utc), error=error_text)
+        log_to_db('load_star_schema', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
 # ============================================================
 # SECTION 4 — Monitoring endpoints
 # ============================================================
@@ -2533,3 +2657,164 @@ async def status_evolution_endpoint(
         except Exception as e:
             logger.error(f"Status evolution error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Status evolution error: {str(e)}")
+
+
+@app.post(
+    "/gold/load-geo-dim",
+    response_model=DimLoadResponse,
+    tags=["Load"],
+    summary="Upsert gold.dim_geo from INSEE communes CSV",
+    description="""Loads the geographic dimension table into the gold star schema.
+
+Reads `20230823-communes-departement-region.csv` from `bronze/insee` (MinIO/S3),
+deduplicates at `code_postal` grain (centroid lat/lon), and upserts into `gold.dim_geo`.
+
+**~6 329 postal codes** — idempotent (ON CONFLICT DO UPDATE).
+"""
+)
+async def load_geo_dim_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    logger.info(f"load_geo_dim request (background={background})")
+    if background:
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "load_geo_dim",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": "dim_geo upsert in progress...",
+            "params": {},
+        }
+        if job_store.enabled:
+            job_store.create(run_id=task_id, job_type="data", source="load_geo_dim",
+                             params={"background": True}, message="dim_geo upsert in progress...")
+        background_tasks.add_task(run_load_geo_dim_task, task_id)
+        return DimLoadResponse(success=True, message=f"dim_geo upsert started in background (task_id: {task_id})")
+    else:
+        try:
+            start = time.monotonic()
+            result = load_geo_dim()
+            return DimLoadResponse(success=True, message=f"dim_geo upserted: {result['upserted']:,} rows",
+                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2))
+        except Exception as e:
+            logger.error(f"load_geo_dim error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"load_geo_dim error: {str(e)}")
+
+
+@app.post(
+    "/gold/load-naf-dim",
+    response_model=DimLoadResponse,
+    tags=["Load"],
+    summary="Upsert gold.dim_naf from INSEE NAF CSV",
+    description="""Loads the NAF activity code dimension table into the gold star schema.
+
+Reads `int_courts_naf_rev_2.csv` from `bronze/insee` (MinIO/S3),
+builds a flat 5-level hierarchy (section → division → groupe → classe → sous-classe),
+and upserts into `gold.dim_naf`.
+
+**732 sous-classes** — idempotent (ON CONFLICT DO UPDATE).
+"""
+)
+async def load_naf_dim_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    logger.info(f"load_naf_dim request (background={background})")
+    if background:
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "load_naf_dim",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": "dim_naf upsert in progress...",
+            "params": {},
+        }
+        if job_store.enabled:
+            job_store.create(run_id=task_id, job_type="data", source="load_naf_dim",
+                             params={"background": True}, message="dim_naf upsert in progress...")
+        background_tasks.add_task(run_load_naf_dim_task, task_id)
+        return DimLoadResponse(success=True, message=f"dim_naf upsert started in background (task_id: {task_id})")
+    else:
+        try:
+            start = time.monotonic()
+            result = load_naf_dim()
+            return DimLoadResponse(success=True, message=f"dim_naf upserted: {result['upserted']:,} rows",
+                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2))
+        except Exception as e:
+            logger.error(f"load_naf_dim error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"load_naf_dim error: {str(e)}")
+
+
+@app.post(
+    "/gold/load-star-schema",
+    response_model=StarSchemaLoadResponse,
+    tags=["Load"],
+    summary="Load gold star schema from silver datasets (fact + dimensions)",
+    description="""Loads the gold star schema from silver datasets.
+
+**Pipeline steps:**
+1. Read silver dataset according to `source_mode`
+2. Normalize into `gold.stg_offer` staging table (COPY)
+3. Upsert 3 dimensions: `dim_code_rome`, `dim_type_contrat`, `dim_experience`
+4. Upsert `fact_offre_emploi` (1 row per offer + source)
+5. Purge staging rows
+
+**Source modes:**
+- `auto` (default): prefers `silver/status_analytics`, falls back to `merged + status_history`
+- `complete`: `silver/status_analytics` only (enriched temporal status)
+- `fallback`: `silver/merged + silver/status_history` only
+
+**Incremental (default):** each dataset is identified by a deterministic `run_id`.
+Already-imported snapshots are skipped (`gold.imported_snapshots`). Idempotent.
+"""
+)
+async def load_star_schema_endpoint(
+    background_tasks: BackgroundTasks,
+    source_mode: str = Query(default="auto", description="Silver data source: 'auto' (status_analytics preferred with fallback), 'complete' (status_analytics only), 'fallback' (merged + status_history only)"),
+    incremental: bool = Query(default=True, description="Skip already-imported snapshots (idempotent). Disable to force full reload."),
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    logger.info(f"load_star_schema request (source_mode={source_mode}, incremental={incremental}, background={background})")
+    if background:
+        task_id = utc_run_id()
+        ACTIVE_TASKS[task_id] = {
+            "operation": "load_star_schema",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": f"Star schema load in progress (source_mode={source_mode})...",
+            "params": {"source_mode": source_mode, "incremental": incremental},
+        }
+        if job_store.enabled:
+            job_store.create(run_id=task_id, job_type="data", source="load_star_schema",
+                             params={"background": True, "source_mode": source_mode, "incremental": incremental},
+                             message=f"Star schema load in progress (source_mode={source_mode})...")
+        background_tasks.add_task(run_load_star_schema_task, task_id, source_mode, incremental)
+        return StarSchemaLoadResponse(success=True, message=f"Star schema load started in background (task_id: {task_id})", source_mode=source_mode)
+    else:
+        try:
+            start = time.monotonic()
+            result = run_star_schema_loader(source_mode=source_mode, incremental=incremental)
+            elapsed = round(time.monotonic() - start, 2)
+            if not result:
+                return StarSchemaLoadResponse(success=True, message="No new snapshot to import (already up to date)",
+                                              source_mode=source_mode, skipped=True, elapsed_sec=elapsed)
+            return StarSchemaLoadResponse(
+                success=True,
+                message=f"Star schema loaded: {result.get('staging_rows', 0):,} staging rows → {result.get('fact_rows', 0):,} fact rows",
+                run_id=result.get("run_id"),
+                snapshot_dt=result.get("snapshot_dt"),
+                source_mode=source_mode,
+                staging_rows=result.get("staging_rows"),
+                fact_rows=result.get("fact_rows"),
+                dim_code_rome_rows=result.get("dim_code_rome_rows"),
+                dim_type_contrat_rows=result.get("dim_type_contrat_rows"),
+                dim_experience_rows=result.get("dim_experience_rows"),
+                elapsed_sec=elapsed,
+            )
+        except Exception as e:
+            logger.error(f"load_star_schema error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"load_star_schema error: {str(e)}")
