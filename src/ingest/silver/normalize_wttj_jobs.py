@@ -367,7 +367,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeRes
         )
     except Exception as e:
         logger.warning(f"[normalize_wttj_jobs] log_to_db done failed: {e}")
-    return NormalizeResult(job_id, status, dt, output_format, files, errors)
+    return NormalizeResult(job_id, status, dt, output_format, files, errors, rows=len(df))
 
 def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> NormalizeResult:
     """
