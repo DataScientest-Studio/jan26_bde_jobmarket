@@ -51,3 +51,29 @@ class StatusEvolutionResponse(BaseModel):
     rows_timeline: Optional[int] = Field(None, description="Nombre de lignes dans le dataset timeline", examples=[375000])
     elapsed_sec: Optional[float] = Field(None, description="Durée d'exécution en secondes", examples=[18.5])
     error: Optional[str] = Field(None, description="Message d'erreur si échec")
+
+
+class DimLoadResponse(BaseModel):
+    """Résultat d'un chargement de dimension dans le star schema gold (dim_geo ou dim_naf)"""
+    success: bool = Field(..., description="Succès de l'opération")
+    message: Optional[str] = Field(None, description="Message descriptif du résultat")
+    upserted: Optional[int] = Field(None, description="Nombre de lignes insérées ou mises à jour", examples=[6329])
+    elapsed_sec: Optional[float] = Field(None, description="Durée d'exécution en secondes", examples=[4.2])
+    error: Optional[str] = Field(None, description="Message d'erreur si échec")
+
+
+class StarSchemaLoadResponse(BaseModel):
+    """Résultat d'un chargement du star schema gold (fact + dimensions)"""
+    success: bool = Field(..., description="Succès de l'opération")
+    message: Optional[str] = Field(None, description="Message descriptif du résultat")
+    run_id: Optional[str] = Field(None, description="Identifiant du run importé", examples=["gold-load-20260317-status_analytics"])
+    snapshot_dt: Optional[str] = Field(None, description="Date du snapshot chargé", examples=["2026-03-17"])
+    source_mode: Optional[str] = Field(None, description="Mode source utilisé : 'auto', 'complete' ou 'fallback'", examples=["auto"])
+    staging_rows: Optional[int] = Field(None, description="Nombre de lignes dans la table de staging", examples=[125000])
+    fact_rows: Optional[int] = Field(None, description="Nombre total de lignes dans fact_offre_emploi", examples=[630000])
+    dim_code_rome_rows: Optional[int] = Field(None, description="Nombre de codes ROME dans dim_code_rome", examples=[490])
+    dim_type_contrat_rows: Optional[int] = Field(None, description="Nombre de types de contrat dans dim_type_contrat", examples=[12])
+    dim_experience_rows: Optional[int] = Field(None, description="Nombre de niveaux d'expérience dans dim_experience", examples=[8])
+    elapsed_sec: Optional[float] = Field(None, description="Durée d'exécution en secondes", examples=[45.3])
+    skipped: Optional[bool] = Field(None, description="True si le snapshot était déjà importé (incremental skip)")
+    error: Optional[str] = Field(None, description="Message d'erreur si échec")
