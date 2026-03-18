@@ -16,33 +16,41 @@
     ]
   },
   "editable": true,
+  "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": null,
+  "id": 8,
   "links": [],
+  "liveNow": false,
   "panels": [
     {
       "datasource": {
         "type": "postgres",
         "uid": "jobstore"
       },
-      "gridPos": {
-        "h": 14,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "timestamp"
-          }
-        ]
-      },
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
         "overrides": [
           {
             "matcher": {
@@ -107,24 +115,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "URLs"
+              "options": "Records"
             },
             "properties": [
               {
                 "id": "custom.width",
                 "value": 90
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Erreurs"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 80
               }
             ]
           },
@@ -142,6 +138,31 @@
           }
         ]
       },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "timestamp"
+          }
+        ]
+      },
       "pluginVersion": "10.2.3",
       "targets": [
         {
@@ -152,7 +173,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  timestamp,\n  level,\n  message,\n  task_id,\n  duration_sec,\n  records_count,\n  error_count,\n  extra_metadata\nFROM ingestion_logs\nWHERE \n  endpoint = 'welcome_to_the_jungle'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT \n  timestamp,\n  level,\n  message,\n  task_id,\n  duration_sec,\n  records_count,\n  extra_metadata\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -173,41 +194,93 @@
           }
         }
       ],
-      "title": "Welcome to the Jungle Ingestion Logs",
-      "type": "table",
+      "title": "ROME Ingestion Logs",
       "transformations": [
         {
           "id": "organize",
           "options": {
             "excludeByName": {},
             "indexByName": {
-              "timestamp": 0,
-              "level": 1,
-              "task_id": 2,
-              "message": 3,
               "duration_sec": 4,
+              "extra_metadata": 6,
+              "level": 1,
+              "message": 3,
               "records_count": 5,
-              "error_count": 6,
-              "extra_metadata": 7
+              "task_id": 2,
+              "timestamp": 0
             },
             "renameByName": {
               "duration_sec": "Durée (s)",
-              "error_count": "Erreurs",
               "extra_metadata": "Metadata",
               "level": "Niveau",
               "message": "Message",
-              "records_count": "URLs",
+              "records_count": "Records",
               "task_id": "Task ID",
               "timestamp": "Timestamp"
             }
           }
         }
-      ]
+      ],
+      "type": "table"
     },
     {
       "datasource": {
         "type": "postgres",
         "uid": "jobstore"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -218,6 +291,7 @@
       "id": 2,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -236,17 +310,71 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Operations\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'welcome_to_the_jungle'\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Operations\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
-      "title": "Operations Count (5min windows)",
+      "title": "Operations Count  (5min windows)",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "postgres",
         "uid": "jobstore"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -257,6 +385,7 @@
       "id": 3,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -275,7 +404,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Errors\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'welcome_to_the_jungle'\n  AND level IN ('ERROR', 'WARNING')\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Errors\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND level IN ('ERROR', 'WARNING')\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -284,8 +413,11 @@
     }
   ],
   "refresh": "10s",
-  "schemaVersion": 38,
-  "tags": ["ingestion", "welcome-to-the-jungle"],
+  "schemaVersion": 39,
+  "tags": [
+    "rome",
+    "Bronze"
+  ],
   "templating": {
     "list": []
   },
@@ -295,8 +427,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Welcome to the Jungle Ingestion Logs",
-  "uid": "wttj-ingestion-logs",
-  "version": 0,
+  "title": "1.BRONZE - 0.ROME Ingestion",
+  "uid": "rome-ingestion-logs",
+  "version": 6,
   "weekStart": ""
 }

@@ -16,33 +16,41 @@
     ]
   },
   "editable": true,
+  "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": null,
+  "id": 6,
   "links": [],
+  "liveNow": false,
   "panels": [
     {
       "datasource": {
         "type": "postgres",
         "uid": "jobstore"
       },
-      "gridPos": {
-        "h": 14,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
-      "options": {
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "timestamp"
-          }
-        ]
-      },
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
         "overrides": [
           {
             "matcher": {
@@ -142,6 +150,31 @@
           }
         ]
       },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "timestamp"
+          }
+        ]
+      },
       "pluginVersion": "10.2.3",
       "targets": [
         {
@@ -174,21 +207,20 @@
         }
       ],
       "title": "France Travail Offers Ingestion Logs",
-      "type": "table",
       "transformations": [
         {
           "id": "organize",
           "options": {
             "excludeByName": {},
             "indexByName": {
-              "timestamp": 0,
-              "level": 1,
-              "task_id": 2,
-              "message": 3,
               "duration_sec": 4,
-              "records_count": 5,
               "error_count": 6,
-              "extra_metadata": 7
+              "extra_metadata": 7,
+              "level": 1,
+              "message": 3,
+              "records_count": 5,
+              "task_id": 2,
+              "timestamp": 0
             },
             "renameByName": {
               "duration_sec": "Durée (s)",
@@ -202,12 +234,67 @@
             }
           }
         }
-      ]
+      ],
+      "type": "table"
     },
     {
       "datasource": {
         "type": "postgres",
         "uid": "jobstore"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -218,6 +305,7 @@
       "id": 2,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -248,6 +336,60 @@
         "type": "postgres",
         "uid": "jobstore"
       },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -257,6 +399,7 @@
       "id": 3,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -284,8 +427,11 @@
     }
   ],
   "refresh": "10s",
-  "schemaVersion": 38,
-  "tags": ["ingestion", "france-travail"],
+  "schemaVersion": 39,
+  "tags": [
+    "Bronze",
+    "France-Travail"
+  ],
   "templating": {
     "list": []
   },
@@ -295,8 +441,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "France Travail Offers Ingestion Logs",
+  "title": "1.BRONZE - 1.France Travail Offers Ingestion",
   "uid": "france-travail-offers-logs",
-  "version": 0,
+  "version": 7,
   "weekStart": ""
 }
