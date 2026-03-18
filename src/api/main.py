@@ -1826,7 +1826,7 @@ def get_task_details_generic(task_id: str):
         "progress_pct": task_info.get("progress_pct"),
         "message": task_info.get("message"),
         "params": task_info.get("params"),
-        "result": task_info.get("result"),
+        **({"result": task_info["result"]} if task_info.get("result") is not None else {}),
         "error": task_info.get("error")
     }
 
@@ -1981,7 +1981,7 @@ async def ingest_rome_metiers_endpoint(
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="import", source="rome_metiers", params={"background": True}, message="Ingesting ROME job codes...")
         background_tasks.add_task(run_rome_metiers_task, task_id)
-        return IngestResponse(success=True, message=f"ROME code ingestion started in background (task_id: {task_id})", key=task_id)
+        return IngestResponse(success=True, message=f"ROME code ingestion started in background (task_id: {task_id})", task_id=task_id, key=task_id)
     else:
         try:
             result = ingest_rome_metiers()
@@ -2034,7 +2034,7 @@ async def ingest_france_travail_offers_endpoint(
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="import", source="france_travail_offers", params={"background": True, "max_rome_codes": max_rome_codes, "window_days": window_days, "max_windows": max_windows, "binary_split_min_seconds": binary_split_min_seconds}, message=f"Ingesting France Travail offers (max_rome_codes: {max_rome_codes or 'all'})...")
         background_tasks.add_task(run_france_travail_offers_task, task_id, window_days, max_windows, binary_split_min_seconds, max_rome_codes)
-        return IngestOffersResponse(success=True, message=f"France Travail offer ingestion started in background (task_id: {task_id})", run_id=task_id)
+        return IngestOffersResponse(success=True, message=f"France Travail offer ingestion started in background (task_id: {task_id})", task_id=task_id, run_id=task_id)
     else:
         try:
             result = ingest_france_travail_offers(storage=None, client=None, window_days=window_days, max_windows=max_windows, binary_split_min_seconds=binary_split_min_seconds, max_rome_codes=max_rome_codes, logger_override=None)
@@ -2125,7 +2125,7 @@ async def ingest_wttj_endpoint(
                                   store_html_mode
                                   )
         
-        return IngestWTTJResponse(success=True, message=f"WTTJ ingestion started in background (task_id: {task_id})", run_id=task_id)
+        return IngestWTTJResponse(success=True, message=f"WTTJ ingestion started in background (task_id: {task_id})", task_id=task_id, run_id=task_id)
     else:
         try:
             result = ingest_welcome_to_the_jungle(
@@ -2388,7 +2388,7 @@ def normalize_wttj_jobs_endpoint(
 
         background_tasks.add_task(run_normalize_wttj_task, task_id, dt, output_format)
         return NormalizeWTTJResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0,
-                                     success=True, message=f"WTTJ normalization started in background (task_id: {task_id})")
+                                     success=True, message=f"WTTJ normalization started in background (task_id: {task_id})", task_id=task_id)
     else:
         r = normalize_wttj_jobs(dt, output_format)
         return NormalizeWTTJResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
@@ -2436,7 +2436,7 @@ def normalize_ft_jobs_endpoint(
         background_tasks.add_task(run_normalize_ft_task, task_id, dt, output_format)
 
         return NormalizeFTResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0,
-                                    success=True, message=f"FT normalization started in background (task_id: {task_id})")
+                                    success=True, message=f"FT normalization started in background (task_id: {task_id})", task_id=task_id)
     else:
         r = normalize_ft_jobs(dt, output_format)
         return NormalizeFTResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
@@ -2504,7 +2504,7 @@ async def merge_datasets_endpoint(
                                   output_prefix,
                                   output_format)
 
-        return MergeDatasetResponse(success=True, message=f"Dataset merge started in background (task_id: {task_id})", output_key=task_id)
+        return MergeDatasetResponse(success=True, message=f"Dataset merge started in background (task_id: {task_id})", task_id=task_id, output_key=task_id)
     else:
         try:
             result = merge_ft_wttj_datasets(ft_prefix=ft_prefix,
@@ -2568,7 +2568,7 @@ async def status_tracking_endpoint(
                 message=f"Status tracking in progress (mode: {mode})...",
             )
         background_tasks.add_task(run_status_tracking_task, task_id, mode, output_prefix)
-        return StatusTrackingResponse(success=True, message=f"Status tracking started in background (task_id: {task_id})", mode=mode)
+        return StatusTrackingResponse(success=True, message=f"Status tracking started in background (task_id: {task_id})", task_id=task_id, mode=mode)
     else:
         try:
             result = run_status_tracking(mode=mode, output_prefix=output_prefix)
@@ -2643,7 +2643,7 @@ async def status_evolution_endpoint(
                 message=f"Status evolution generation in progress (mode: {mode})...",
             )
         background_tasks.add_task(run_status_evolution_task, task_id, mode, output_prefix)
-        return StatusEvolutionResponse(success=True, message=f"Status evolution generation started in background (task_id: {task_id})", mode=mode)
+        return StatusEvolutionResponse(success=True, message=f"Status evolution generation started in background (task_id: {task_id})", task_id=task_id, mode=mode)
     else:
         try:
             if mode == "daily_reconstruction":
@@ -2805,7 +2805,7 @@ async def load_star_schema_endpoint(
                              params={"background": True, "source_mode": source_mode, "incremental": incremental},
                              message=f"Star schema load in progress (source_mode={source_mode})...")
         background_tasks.add_task(run_load_star_schema_task, task_id, source_mode, incremental)
-        return StarSchemaLoadResponse(success=True, message=f"Star schema load started in background (task_id: {task_id})", source_mode=source_mode)
+        return StarSchemaLoadResponse(success=True, message=f"Star schema load started in background (task_id: {task_id})", task_id=task_id, source_mode=source_mode)
     else:
         try:
             start = time.monotonic()

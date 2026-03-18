@@ -11,6 +11,14 @@ from pydantic import BaseModel, Field
 class BaseJobResponse(BaseModel):
     success: bool = Field(..., description="Succès de l'opération")
     message: str = Field(..., description="Message descriptif du résultat")
+    task_id: Optional[str] = Field(
+        None,
+        description=(
+            "Identifiant de la tâche background. "
+            "Présent uniquement en mode background=true. "
+            "Permet de poller GET /tasks/{task_id} pour suivre la progression."
+        ),
+    )
     records_count: Optional[int] = Field(
         None,
         description=(
