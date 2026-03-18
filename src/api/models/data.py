@@ -1,14 +1,18 @@
 """
 Modèles de réponse pour les opérations de traitement de données.
+
+Tous héritent de BaseJobResponse : success, message, records_count toujours présents.
 """
 from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
+from .base import BaseJobResponse
 
 
-class MergeDatasetResponse(BaseModel):
-    """Résultat d'une opération de fusion de datasets"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: str = Field(..., description="Message descriptif du résultat")
+class MergeDatasetResponse(BaseJobResponse):
+    """Résultat d'une opération de fusion de datasets.
+
+    records_count = total_offers (nombre total d'offres fusionnées).
+    """
     output_key: Optional[str] = Field(None, description="Clé de stockage du dataset fusionné", example="merged_dataset_20260225_143000.parquet")
     output_format: Optional[str] = Field(None, description="Format du fichier de sortie", example="parquet")
     ft_prefix: Optional[str] = Field(None, description="Préfixe des données France Travail utilisées")
@@ -22,10 +26,11 @@ class MergeDatasetResponse(BaseModel):
     error: Optional[str] = Field(None, description="Message d'erreur si échec")
 
 
-class StatusTrackingResponse(BaseModel):
-    """Résultat d'un run de suivi du cycle de vie des offres d'emploi"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: str = Field(..., description="Message descriptif du résultat")
+class StatusTrackingResponse(BaseJobResponse):
+    """Résultat d'un run de suivi du cycle de vie des offres d'emploi.
+
+    records_count = total_status_records (nombre de lignes de statut produites).
+    """
     mode: Optional[str] = Field(None, description="Mode d'exécution : 'incremental' ou 'global_recalc'", examples=["incremental"])
     output_key: Optional[str] = Field(None, description="Clé de stockage du fichier de statuts (mode incremental)", examples=["dt=2026-03-17/segment=offer_status/offer_status.parquet"])
     run_json_key: Optional[str] = Field(None, description="Clé du fichier de métadonnées run.json (mode incremental)")
@@ -37,10 +42,11 @@ class StatusTrackingResponse(BaseModel):
     error: Optional[str] = Field(None, description="Message d'erreur si échec")
 
 
-class StatusEvolutionResponse(BaseModel):
-    """Résultat d'un run de génération des datasets analytiques d'évolution de statut"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: Optional[str] = Field(None, description="Message descriptif du résultat")
+class StatusEvolutionResponse(BaseJobResponse):
+    """Résultat d'un run de génération des datasets analytiques d'évolution de statut.
+
+    records_count = rows_timeline (nombre de lignes dans le dataset timeline).
+    """
     job_id: Optional[str] = Field(None, description="Identifiant unique du run")
     analysis_dt: Optional[str] = Field(None, description="Date de référence de l'analyse", examples=["2026-03-17"])
     mode: Optional[str] = Field(None, description="Mode d'exécution : 'incremental' ou 'recompute_all'", examples=["incremental"])
@@ -53,19 +59,21 @@ class StatusEvolutionResponse(BaseModel):
     error: Optional[str] = Field(None, description="Message d'erreur si échec")
 
 
-class DimLoadResponse(BaseModel):
-    """Résultat d'un chargement de dimension dans le star schema gold (dim_geo ou dim_naf)"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: Optional[str] = Field(None, description="Message descriptif du résultat")
+class DimLoadResponse(BaseJobResponse):
+    """Résultat d'un chargement de dimension dans le star schema gold (dim_geo ou dim_naf).
+
+    records_count = upserted (nombre de lignes insérées ou mises à jour).
+    """
     upserted: Optional[int] = Field(None, description="Nombre de lignes insérées ou mises à jour", examples=[6329])
     elapsed_sec: Optional[float] = Field(None, description="Durée d'exécution en secondes", examples=[4.2])
     error: Optional[str] = Field(None, description="Message d'erreur si échec")
 
 
-class StarSchemaLoadResponse(BaseModel):
-    """Résultat d'un chargement du star schema gold (fact + dimensions)"""
-    success: bool = Field(..., description="Succès de l'opération")
-    message: Optional[str] = Field(None, description="Message descriptif du résultat")
+class StarSchemaLoadResponse(BaseJobResponse):
+    """Résultat d'un chargement du star schema gold (fact + dimensions).
+
+    records_count = fact_rows (nombre total de lignes dans fact_offre_emploi).
+    """
     run_id: Optional[str] = Field(None, description="Identifiant du run importé", examples=["gold-load-20260317-status_analytics"])
     snapshot_dt: Optional[str] = Field(None, description="Date du snapshot chargé", examples=["2026-03-17"])
     source_mode: Optional[str] = Field(None, description="Mode source utilisé : 'auto', 'complete' ou 'fallback'", examples=["auto"])

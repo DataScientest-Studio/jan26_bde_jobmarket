@@ -245,7 +245,7 @@ def normalize_ft_jobs(dt: str, output_format: str = "parquet") -> NormalizeResul
     except Exception as exc:
         logger.warning(f"[normalize_ft_jobs] log_to_db done failed: {exc}")
 
-    return NormalizeResult(job_id, "SUCCESS", dt, output_format, files, errors)
+    return NormalizeResult(job_id, "SUCCESS", dt, output_format, files, errors, rows=len(df))
 
 
 def normalize_ft_jobs_incremental(output_format: str = "parquet") -> NormalizeResult:

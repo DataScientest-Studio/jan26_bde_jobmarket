@@ -1,13 +1,19 @@
 version: "3.9"
 
+networks:
+  jobmarket-net:
+    driver: bridge
+
 services:
   postgres:
     cpus: "2.0"
-    mem_limit: 4g 
-    memswap_limit: 4g    
+    mem_limit: 4g
+    memswap_limit: 4g
     image: postgres:15
     container_name: jobmarket-postgres
     restart: unless-stopped
+    networks:
+      - jobmarket-net
     env_file:
       - .env
     environment:
@@ -23,10 +29,12 @@ services:
   minio:
     cpus: "0.5"
     mem_limit: 1g # Force la libération du cache
-    memswap_limit: 1g    
+    memswap_limit: 1g
     image: minio/minio:latest
     container_name: minio
-    restart: unless-stopped    
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -40,6 +48,8 @@ services:
   minio-init:
     image: minio/mc:latest
     container_name: minio-init
+    networks:
+      - jobmarket-net
     depends_on:
       - minio
     entrypoint: >
@@ -53,24 +63,26 @@ services:
   jupyter:
     cpus: "1.5"
     mem_limit: 5g
-    memswap_limit: 5g    
+    memswap_limit: 5g
     build: .                          # pour utiliser le Dockerfile local
     container_name: jobmarket-jupyter
-    restart: unless-stopped    
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
     depends_on:
       - minio-init
     ports:
       - "8888:8888"
     environment:
       JUPYTER_TOKEN: jobmarket
-      PYTHONPATH: /home/jovyan/work    #  pour 
+      PYTHONPATH: /home/jovyan/work    #  pour
 
       STORAGE_BACKEND: s3
       S3_ENDPOINT_URL: http://minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: jobmarket
-      S3_PREFIX: ""   
+      S3_PREFIX: ""
 
       # optionnel : dataset courant
       # DATASET: france_travail
@@ -88,16 +100,19 @@ services:
       pip install -U pip &&
       if [ -f requirements.txt ]; then pip install -r requirements.txt; fi &&
       jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token=jobmarket
-      "    
+      "
+
   jobmarket-api:
     cpus: "4.0"
     mem_limit: 8g
-    memswap_limit: 16g  
+    memswap_limit: 16g
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: jobmarket-api
     restart: unless-stopped
+    networks:
+      - jobmarket-net
     logging:                        # Keep log to investigate crashes
       driver: "json-file"
       options:
@@ -122,10 +137,12 @@ services:
   grafana:
     cpus: "0.5"
     mem_limit: 512m
-    memswap_limit: 1g    
+    memswap_limit: 1g
     image: grafana/grafana:10.2.3
     container_name: jobmarket-grafana
-    restart: unless-stopped    
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
     depends_on:
       - postgres
     ports:
@@ -146,10 +163,12 @@ services:
   pgadmin:
     cpus: "0.5"
     mem_limit: 512m
-    memswap_limit: 512m    
+    memswap_limit: 512m
     image: dpage/pgadmin4:latest
     container_name: jobmarket-pgadmin
-    restart: unless-stopped    
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
     depends_on:
       - postgres
     ports:
@@ -164,7 +183,61 @@ services:
       - pgadmin-data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json
 
+  airflow:
+    cpus: "1.0"
+    mem_limit: 2g
+    memswap_limit: 2g
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: jobmarket-airflow
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
+    depends_on:
+      - postgres
+      - jobmarket-api
+    env_file:
+      - .env
+    environment:
+      # Variables qui ne peuvent pas être dans .env :
+      # - SQL_ALCHEMY_CONN : hostname réseau Docker (postgres:5432) non résolvable hors conteneur
+      # - SIMPLE_AUTH_MANAGER_USERS : interpolation ${VAR} non supportée dans env_file
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+      # Format attendu : "username:ROLE" — ADMIN est le rôle Airflow (pas le mot de passe)
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_ADMIN_USER}:ADMIN"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    # Séquence de démarrage :
+    # 1. db migrate      — initialise le schéma de métadonnées Airflow
+    # 2. python3         — écrit simple_auth_passwords.json (auth Airflow 3.x, mots de passe en clair)
+    # 3. connections     — supprime puis recrée la connexion HTTP vers l'API jobmarket.
+    #                      Les DAGs référencent cette connexion via http_conn_id="jobmarket_api".
+    #                      Airflow résout l'URL à l'exécution : host + port de la connexion +
+    #                      endpoint de l'HttpOperator → http://jobmarket-api:8000/data/merge-datasets
+    #
+    #                      Alternative (non utilisée ici) : variable d'env au format
+    #                      AIRFLOW_CONN_<CONN_ID>=<uri> — ex:
+    #                        AIRFLOW_CONN_JOBMARKET_API: "http://jobmarket-api:8000"
+    #                      Airflow la détecte automatiquement sans passer par la DB.
+    #                      Inconvénient : conn_type mal inféré depuis l'URI → même bug conn_type=generic.
+    #
+    #                      Le delete préalable est nécessaire : si la connexion existe déjà en
+    #                      conn_type=generic (créée avant que le provider HTTP soit installé),
+    #                      get_hook() retourne None → AttributeError: 'NoneType'.rsplit dans HttpOperator.
+    # 4. standalone      — démarre scheduler + api-server + dag-processor
+    command: >-
+      bash -c
+      "airflow db migrate &&
+      python3 -c 'import json,os; u=os.environ.get(\"AIRFLOW_ADMIN_USER\",\"admin\"); p=os.environ.get(\"AIRFLOW_ADMIN_PASSWORD\",\"admin\"); open(\"/opt/airflow/simple_auth_passwords.json\",\"w\").write(json.dumps({u:p})+\"\\n\")' &&
+      airflow connections delete jobmarket_api 2>/dev/null; airflow connections add jobmarket_api --conn-type http --conn-host jobmarket-api --conn-port 8000 &&
+      airflow standalone"
+
 volumes:
   grafana-data:
   jobdb-data:
   pgadmin-data:
+  airflow-logs:
