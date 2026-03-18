@@ -2042,7 +2042,7 @@ async def ingest_france_travail_offers_endpoint(
                 logger.info(f"Ingestion successful: {result['written']} offers, {result['rome_processed']} ROME codes")
             else:
                 logger.error(f"Ingestion failed: {result.get('error')}")
-            return IngestOffersResponse(**result)
+            return IngestOffersResponse(**result, records_count=result.get("written"))  # records_count = written
         except Exception as e:
             logger.error(f"Ingestion error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
@@ -2141,7 +2141,7 @@ async def ingest_wttj_endpoint(
                 logger.info(f"Ingestion successful: {result.get('total_written')} records")
             else:
                 logger.error(f"Ingestion failed: {result.get('error')}")
-            return IngestWTTJResponse(**result)
+            return IngestWTTJResponse(**result, records_count=result.get("total_written"))  # records_count = total_written
         except Exception as e:
             logger.error(f"WTTJ ingestion error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
@@ -2201,12 +2201,13 @@ async def collect_sitemaps_endpoint(
                 urls_count = result.get("total_processed", 0)
                 storage_key = result.get("storage_key")
                 logger.info(f"Collection successful: {urls_count} URLs in {elapsed_s:.2f}s (storage: {storage_key})")
-                return CollectSitemapsResponse(success=True, 
-                                               message=f"Collection successful: {urls_count} URLs collected", 
-                                               urls_count=urls_count, 
-                                               storage_key=storage_key, 
-                                               elapsed_s=elapsed_s, 
-                                               error=None)
+                return CollectSitemapsResponse(success=True,
+                                               message=f"Collection successful: {urls_count} URLs collected",
+                                               urls_count=urls_count,
+                                               storage_key=storage_key,
+                                               elapsed_s=elapsed_s,
+                                               error=None,
+                                               records_count=urls_count)
             else:
                 error_msg = result.get("error", "Unknown error")
                 logger.error(f"Collection failed: {error_msg}")
@@ -2313,19 +2314,20 @@ async def ingest_wttj_jobs_optimized_endpoint(
                 urls_ko = jobs_opt.get("ko", 0)
                 records_written = jobs_opt.get("written", 0)
                 logger.info(f"Ingestion successful: {records_written} records ({urls_processed} URLs, {urls_ko} errors)")
-                return IngestWTTJOptResponse(success=True, 
-                                             message=result.get("message", ""), 
-                                             run_id=result.get("run_id"), 
-                                             dt=result.get("dt"), 
-                                             mode=result.get("mode"), 
-                                             urls_total=urls_processed, 
-                                             urls_processed=urls_processed, 
-                                             urls_ok=urls_ok, 
-                                             urls_ko=urls_ko, 
-                                             records_written=records_written, 
-                                             elapsed_s=result.get("elapsed_s"), 
-                                             storage_prefix=f"dt={result.get('dt')}/run_id={result.get('run_id')}", 
-                                             error=None)
+                return IngestWTTJOptResponse(success=True,
+                                             message=result.get("message", ""),
+                                             run_id=result.get("run_id"),
+                                             dt=result.get("dt"),
+                                             mode=result.get("mode"),
+                                             urls_total=urls_processed,
+                                             urls_processed=urls_processed,
+                                             urls_ok=urls_ok,
+                                             urls_ko=urls_ko,
+                                             records_written=records_written,
+                                             elapsed_s=result.get("elapsed_s"),
+                                             storage_prefix=f"dt={result.get('dt')}/run_id={result.get('run_id')}",
+                                             error=None,
+                                             records_count=records_written)
             else:
                 error_msg = result.get("error", "Unknown error")
                 logger.error(f"Ingestion failed: {error_msg}")
@@ -2357,11 +2359,11 @@ async def ingest_wttj_jobs_optimized_endpoint(
     "" \
     ""
 )
-async def normalize_wttj_jobs_endpoint(
+def normalize_wttj_jobs_endpoint(
     background_tasks: BackgroundTasks,
     dt: Optional[str] = Query(None, description="Extraction date in bronze layer (YYYY-MM-DD). If not provided or 'latest', uses the most recent available dt."),
     output_format: str = Query(default="parquet", description="Output format: parquet (default), jsonl, or csv"),
-    background: bool = Query(default=True, description="Run task in background")
+    background: bool = Query(default=False, description="Run task in background")
 ):
     if background:
         task_id = utc_run_id()
@@ -2385,10 +2387,13 @@ async def normalize_wttj_jobs_endpoint(
                             )
 
         background_tasks.add_task(run_normalize_wttj_task, task_id, dt, output_format)
-        return NormalizeWTTJResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0)
+        return NormalizeWTTJResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0,
+                                     success=True, message=f"WTTJ normalization started in background (task_id: {task_id})")
     else:
         r = normalize_wttj_jobs(dt, output_format)
-        return NormalizeWTTJResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors)
+        return NormalizeWTTJResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
+                                     success=(r.status == STATUS_SUCCESS), message=f"WTTJ normalization {r.status}",
+                                     records_count=r.rows)
 
 
 @app.post(
@@ -2398,11 +2403,11 @@ async def normalize_wttj_jobs_endpoint(
     summary="Normalize FT bronze jobs data to a silver format",
     description="Reads all FT bronze job_raw files for a given dt, clean and normalize data and save it in a silver format with the same dt."
 )
-async def normalize_ft_jobs_endpoint(
+def normalize_ft_jobs_endpoint(
     background_tasks: BackgroundTasks,
     dt: Optional[str] = Query(None, description="Extraction date in bronze layer (YYYY-MM-DD). If not provided or 'latest', uses the most recent available dt."),
     output_format: str = Query(default="parquet", description="Output format: parquet (default), jsonl, or csv"),
-    background: bool = Query(default=True, description="Run task in background")
+    background: bool = Query(default=False, description="Run task in background")
 ):
     if background:
         task_id = utc_run_id()
@@ -2430,10 +2435,13 @@ async def normalize_ft_jobs_endpoint(
 
         background_tasks.add_task(run_normalize_ft_task, task_id, dt, output_format)
 
-        return NormalizeFTResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0)
+        return NormalizeFTResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0,
+                                    success=True, message=f"FT normalization started in background (task_id: {task_id})")
     else:
         r = normalize_ft_jobs(dt, output_format)
-        return NormalizeFTResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors)
+        return NormalizeFTResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
+                                    success=(r.status == STATUS_SUCCESS), message=f"FT normalization {r.status}",
+                                    records_count=r.rows)
 
 
 @app.post(
@@ -2507,7 +2515,7 @@ async def merge_datasets_endpoint(
                 logger.info(f"Merge successful: {result.get('total_offers')} offers merged")
             else:
                 logger.error(f"Merge failed: {result.get('error')}")
-            return MergeDatasetResponse(**result)
+            return MergeDatasetResponse(**result, records_count=result.get("total_offers"))
         except Exception as e:
             logger.error(f"Merge error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Merge error: {str(e)}")
@@ -2537,7 +2545,7 @@ async def status_tracking_endpoint(
     background_tasks: BackgroundTasks,
     mode: str = Query(default="incremental", description="Tracking mode: 'incremental' (default, fast daily run) or 'global_recalc' (full history replay, expensive)"),
     output_prefix: Optional[str] = Query(default=None, description="Prefix for the output parquet file (default: offer_status.parquet)"),
-    background: bool = Query(default=True, description="Run task in background"),
+    background: bool = Query(default=False, description="Run task in background"),
 ):
     logger.info(f"Status tracking request (mode={mode}, background={background})")
 
@@ -2575,6 +2583,7 @@ async def status_tracking_endpoint(
                 dates_processed=result.get("dates_processed"),
                 status_stats=result.get("status_stats"),
                 elapsed_sec=result.get("elapsed_sec"),
+                records_count=result.get("total_status_records"),
             )
         except Exception as e:
             logger.error(f"Status tracking error: {e}", exc_info=True)
@@ -2611,7 +2620,7 @@ async def status_evolution_endpoint(
     background_tasks: BackgroundTasks,
     mode: str = Query(default="incremental", description="Generation mode: 'incremental' (latest snapshot only, fast), 'recompute_all' (full timeline rebuild, slow) or 'daily_reconstruction' (simulate daily run per snapshot, audit/backfill)"),
     output_prefix: Optional[str] = Query(default=None, description="Optional prefix for output parquet filenames (avoids overwriting previous runs)"),
-    background: bool = Query(default=True, description="Run task in background"),
+    background: bool = Query(default=False, description="Run task in background"),
 ):
     logger.info(f"Status evolution parquet generation request (mode={mode}, background={background})")
 
@@ -2653,6 +2662,7 @@ async def status_evolution_endpoint(
                 rows_complete=result.get("rows_complete"),
                 rows_timeline=result.get("rows_timeline"),
                 elapsed_sec=result.get("elapsed_sec"),
+                records_count=result.get("rows_timeline"),
             )
         except Exception as e:
             logger.error(f"Status evolution error: {e}", exc_info=True)
@@ -2697,7 +2707,8 @@ async def load_geo_dim_endpoint(
             start = time.monotonic()
             result = load_geo_dim()
             return DimLoadResponse(success=True, message=f"dim_geo upserted: {result['upserted']:,} rows",
-                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2))
+                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2),
+                                   records_count=result["upserted"])
         except Exception as e:
             logger.error(f"load_geo_dim error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"load_geo_dim error: {str(e)}")
@@ -2742,7 +2753,8 @@ async def load_naf_dim_endpoint(
             start = time.monotonic()
             result = load_naf_dim()
             return DimLoadResponse(success=True, message=f"dim_naf upserted: {result['upserted']:,} rows",
-                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2))
+                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2),
+                                   records_count=result["upserted"])
         except Exception as e:
             logger.error(f"load_naf_dim error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"load_naf_dim error: {str(e)}")
@@ -2775,7 +2787,7 @@ async def load_star_schema_endpoint(
     background_tasks: BackgroundTasks,
     source_mode: str = Query(default="auto", description="Silver data source: 'auto' (status_analytics preferred with fallback), 'complete' (status_analytics only), 'fallback' (merged + status_history only)"),
     incremental: bool = Query(default=True, description="Skip already-imported snapshots (idempotent). Disable to force full reload."),
-    background: bool = Query(default=True, description="Run task in background"),
+    background: bool = Query(default=False, description="Run task in background"),
 ):
     logger.info(f"load_star_schema request (source_mode={source_mode}, incremental={incremental}, background={background})")
     if background:
@@ -2814,6 +2826,7 @@ async def load_star_schema_endpoint(
                 dim_type_contrat_rows=result.get("dim_type_contrat_rows"),
                 dim_experience_rows=result.get("dim_experience_rows"),
                 elapsed_sec=elapsed,
+                records_count=result.get("fact_rows"),
             )
         except Exception as e:
             logger.error(f"load_star_schema error: {e}", exc_info=True)
