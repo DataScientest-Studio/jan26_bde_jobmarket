@@ -128,10 +128,15 @@ def _on_dag_success(context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Moteur async — cœur de la version asynchrone
+# Moteur async — coeur de la version asynchrone
 # ---------------------------------------------------------------------------
 
-def _async_call(endpoint: str, poll_interval: int = POLL_INTERVAL_FAST, **context) -> str:
+def _async_call(
+    endpoint: str,
+    poll_interval: int = POLL_INTERVAL_FAST,
+    min_records: int | None = None,
+    **context,
+) -> str:
     """Déclenche un endpoint API en background, poll jusqu'à completion.
 
     Séquence :
@@ -142,7 +147,17 @@ def _async_call(endpoint: str, poll_interval: int = POLL_INTERVAL_FAST, **contex
     Levées d'exception :
         - ValueError : pas de task_id dans la réponse de déclenchement
         - RuntimeError : tâche terminée en FAILED côté API
+        - ValueError : records_count est None ou < min_records après SUCCESS
+          (quand min_records est fourni — typiquement 1 pour les normalisations)
         - Les timeouts Airflow (execution_timeout) interrompent la boucle de polling
+
+    Args:
+        endpoint    : chemin API relatif (ex. "/data/normalize-ft-jobs").
+        poll_interval: secondes entre chaque poll.
+        min_records : si fourni, lève une ValueError si records_count est None
+                      ou inférieur à cette valeur après SUCCESS. Cela provoque
+                      l'échec de la tâche Airflow et déclenche le callback
+                      on_failure → notification Slack.
 
     XCom retourné :
         JSON contenant au minimum success, records_count (et les champs spécifiques
@@ -205,20 +220,31 @@ def _async_call(endpoint: str, poll_interval: int = POLL_INTERVAL_FAST, **contex
         status      = state.get("status", "unknown")
         progress    = state.get("progress_pct", "?")
         message     = state.get("message", "")
-        records     = state.get("records_count") or (state.get("result") or {}).get("records_count", "?")
+        result_data = state.get("result") or {}
+        records     = state.get("records_count") or result_data.get("records_count", "?")
 
         print(f"[async] #{iteration} | status={status} | progress={progress}% | records={records} | {message}")
 
         if status in _STATUS_SUCCESS:
             # Construire le payload XCom à partir du résultat final
-            # On fusionne les champs du state + result pour couvrir tous les cas
+            # On fusionne les champs du state + result_data pour couvrir tous les cas
             result_payload = {
                 "success": True,
                 "message": message,
                 "records_count": state.get("records_count"),
-                **(state.get("result") or {}),  # staging_rows, fact_rows, snapshot_dt, etc.
+                **result_data,  # dt, run_id, staging_rows, fact_rows, snapshot_dt, etc.
             }
             print(f"[async] Terminé avec succès : {json.dumps(result_payload)}")
+
+            # Vérification records_count si min_records demandé
+            if min_records is not None:
+                rc = result_payload.get("records_count")
+                if rc is None or rc < min_records:
+                    raise ValueError(
+                        f"records_count={rc!r} insuffisant (min={min_records}) "
+                        f"— tâche considérée en échec."
+                    )
+
             return json.dumps(result_payload)
 
         if status in _STATUS_FAILED:
@@ -309,10 +335,32 @@ with DAG(
     # --- Normalisation Silver (parallèle) ---
 
     def _normalize_wttj(**context):
-        return _async_call(API_NORMALIZE_WTTJ, poll_interval=POLL_INTERVAL_FAST, **context)
+        ti = context["ti"]
+        raw = ti.xcom_pull(task_ids="ingest_wttj")
+        dt = None
+        if raw:
+            try:
+                dt = json.loads(raw).get("dt")
+            except Exception:
+                pass
+        endpoint = API_NORMALIZE_WTTJ
+        if dt:
+            endpoint += f"?dt={dt}"
+        return _async_call(endpoint, poll_interval=POLL_INTERVAL_FAST, min_records=1, **context)
 
     def _normalize_ft(**context):
-        return _async_call(API_NORMALIZE_FT, poll_interval=POLL_INTERVAL_FAST, **context)
+        ti = context["ti"]
+        raw = ti.xcom_pull(task_ids="ingest_ft")
+        dt = None
+        if raw:
+            try:
+                dt = json.loads(raw).get("dt")
+            except Exception:
+                pass
+        endpoint = API_NORMALIZE_FT
+        if dt:
+            endpoint += f"?dt={dt}"
+        return _async_call(endpoint, poll_interval=POLL_INTERVAL_FAST, min_records=1, **context)
 
     normalize_wttj = PythonOperator(
         task_id="normalize_wttj",
@@ -329,7 +377,37 @@ with DAG(
     # --- Merge Silver ---
 
     def _merge(**context):
-        return _async_call(API_MERGE, poll_interval=POLL_INTERVAL_FAST, **context)
+        ti = context["ti"]
+
+        # Récupérer le dt depuis chaque normalize pour cibler exactement les bons prefixes
+        # (évite toute ambiguïté si l'ingest a chevauché minuit J→J+1)
+        def _extract_dt(task_id: str) -> str | None:
+            raw = ti.xcom_pull(task_ids=task_id)
+            if raw:
+                try:
+                    return json.loads(raw).get("dt")
+                except Exception:
+                    pass
+            return None
+
+        dt_ft   = _extract_dt("normalize_ft")
+        dt_wttj = _extract_dt("normalize_wttj")
+
+        from urllib.parse import urlencode
+
+        qs_params = {}
+        if dt_ft:
+            qs_params["ft_prefix"] = f"dt={dt_ft}"
+        if dt_wttj:
+            qs_params["wttj_prefix"] = f"dt={dt_wttj}/segment=jobs"
+
+        endpoint = API_MERGE
+        if qs_params:
+            sep = "&" if "?" in endpoint else "?"
+            endpoint += sep + urlencode(qs_params)
+
+        print(f"[merge] ft_prefix={'dt=' + dt_ft if dt_ft else 'auto'} | wttj_prefix={'dt=' + dt_wttj + '/segment=jobs' if dt_wttj else 'auto'}")
+        return _async_call(endpoint, poll_interval=POLL_INTERVAL_FAST, **context)
 
     merge = PythonOperator(
         task_id="merge",
@@ -372,9 +450,19 @@ with DAG(
     )
 
     # --- Dépendances ---
+    #
+    # Chaînes parallèles : chaque source est indépendante jusqu'au merge
+    #
+    #   notify_start ─┬─→ ingest_ft   → normalize_ft   ─┐
+    #                 └─→ ingest_wttj → normalize_wttj ─┴─→ merge → status_tracking → status_evolution → load_star_schema
 
+    # Notification de démarrage → ingestions parallèles et normalisations 
     notify_start >> [ingest_ft, ingest_wttj]
-    ingest_ft >> ingest_wttj
-    ingest_wttj >> Label("Bronze → Silver") >> [normalize_wttj, normalize_ft]
-    [normalize_wttj, normalize_ft] >> merge
+    ingest_ft   >> Label("Bronze FT → Silver")   >> normalize_ft
+    ingest_wttj >> Label("Bronze WTTJ → Silver") >> normalize_wttj
+
+    # Une fois les deux normalisations terminées, on peut merger 
+    [normalize_ft, normalize_wttj] >> merge
+
+    # Après le merge, on lance la chaîne de tracking → évolution → chargement Gold
     merge >> status_tracking >> status_evolution >> Label("Silver → Gold") >> load_star_schema
