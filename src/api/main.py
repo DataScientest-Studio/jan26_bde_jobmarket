@@ -288,6 +288,10 @@ def set_task(
         ACTIVE_TASKS[task_id]["progress_pct"] = progress_pct
     if message is not None:
         ACTIVE_TASKS[task_id]["message"] = message
+    if records_count is not None:
+        ACTIVE_TASKS[task_id]["records_count"] = records_count
+    if result is not None:
+        ACTIVE_TASKS[task_id]["result"] = result
     if job_store.enabled:
         job_store.progress(
             task_id,
@@ -1826,6 +1830,7 @@ def get_task_details_generic(task_id: str):
         "completed_at": task_info.get("completed_at").isoformat() if task_info.get("completed_at") else None,
         "progress_pct": task_info.get("progress_pct"),
         "message": task_info.get("message"),
+        "records_count": task_info.get("records_count"),
         "params": task_info.get("params"),
         **({"result": task_info["result"]} if task_info.get("result") is not None else {}),
         "error": task_info.get("error")
