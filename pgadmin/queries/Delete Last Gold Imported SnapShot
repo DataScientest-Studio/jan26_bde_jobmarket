@@ -1,0 +1,2 @@
+select * from gold.imported_snapshots limit 10;
+--delete from gold.imported_snapshots where run_id='gold-load-20260319-status_analytics'
