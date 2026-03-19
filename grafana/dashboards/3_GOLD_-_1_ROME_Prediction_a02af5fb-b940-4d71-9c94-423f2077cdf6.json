@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 11,
+  "id": 36,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -58,24 +58,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "message"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 906
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
               "options": "timestamp"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 182
+                "value": 204
               }
             ]
           },
@@ -87,7 +75,19 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 85
+                "value": 78
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 921
               }
             ]
           }
@@ -123,7 +123,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \r\n  timestamp,\r\n  level,\r\n  message,\r\n  duration_sec,\r\n  extra_metadata\r\nFROM ingestion_logs\r\nWHERE \r\n  endpoint = 'normalize_wttj_jobs'\r\n  AND $__timeFilter(timestamp)\r\nORDER BY timestamp DESC\r\nLIMIT 100",
+          "rawSql": "SELECT \r\n  timestamp,\r\n  level,\r\n  message,\r\n  duration_sec,\r\n  extra_metadata\r\nFROM ingestion_logs\r\nWHERE \r\n  endpoint = 'normalize_wttj_jobs_rome_prediction'\r\n  AND $__timeFilter(timestamp)\r\nORDER BY timestamp DESC\r\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -150,10 +150,7 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": [
-    "WTTJ",
-    "Silver"
-  ],
+  "tags": [],
   "templating": {
     "list": []
   },
@@ -163,8 +160,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "2.SILVER - 1.Normalize WTTJ",
-  "uid": "fb3c51f5-c605-4617-9dcd-57165ec5e121",
-  "version": 6,
+  "title": "3.GOLD - 1.ROME Prediction",
+  "uid": "a02af5fb-b940-4d71-9c94-423f2077cdf6",
+  "version": 1,
   "weekStart": ""
 }

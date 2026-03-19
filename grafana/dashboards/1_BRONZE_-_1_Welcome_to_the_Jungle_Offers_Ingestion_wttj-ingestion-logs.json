@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 8,
+  "id": 38,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -115,12 +115,24 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Records"
+              "options": "URLs"
             },
             "properties": [
               {
                 "id": "custom.width",
                 "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Erreurs"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
               }
             ]
           },
@@ -173,7 +185,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  timestamp,\n  level,\n  message,\n  task_id,\n  duration_sec,\n  records_count,\n  extra_metadata\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT \n  timestamp,\n  level,\n  message,\n  task_id,\n  duration_sec,\n  records_count,\n  error_count,\n  extra_metadata\nFROM ingestion_logs\nWHERE \n  endpoint = 'welcome_to_the_jungle'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -194,7 +206,7 @@
           }
         }
       ],
-      "title": "ROME Ingestion Logs",
+      "title": "Welcome to the Jungle Ingestion Logs",
       "transformations": [
         {
           "id": "organize",
@@ -202,7 +214,8 @@
             "excludeByName": {},
             "indexByName": {
               "duration_sec": 4,
-              "extra_metadata": 6,
+              "error_count": 6,
+              "extra_metadata": 7,
               "level": 1,
               "message": 3,
               "records_count": 5,
@@ -211,10 +224,11 @@
             },
             "renameByName": {
               "duration_sec": "Durée (s)",
+              "error_count": "Erreurs",
               "extra_metadata": "Metadata",
               "level": "Niveau",
               "message": "Message",
-              "records_count": "Records",
+              "records_count": "URLs",
               "task_id": "Task ID",
               "timestamp": "Timestamp"
             }
@@ -310,11 +324,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Operations\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Operations\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'welcome_to_the_jungle'\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
-      "title": "Operations Count  (5min windows)",
+      "title": "Operations Count (5min windows)",
       "type": "timeseries"
     },
     {
@@ -404,7 +418,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Errors\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND level IN ('ERROR', 'WARNING')\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Errors\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'welcome_to_the_jungle'\n  AND level IN ('ERROR', 'WARNING')\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -415,7 +429,7 @@
   "refresh": "10s",
   "schemaVersion": 39,
   "tags": [
-    "rome",
+    "welcome-to-the-jungle",
     "Bronze"
   ],
   "templating": {
@@ -427,8 +441,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "1.BRONZE - 0.ROME Ingestion",
-  "uid": "rome-ingestion-logs",
-  "version": 6,
+  "title": "1.BRONZE - 1.Welcome to the Jungle Offers Ingestion",
+  "uid": "wttj-ingestion-logs",
+  "version": 1,
   "weekStart": ""
 }

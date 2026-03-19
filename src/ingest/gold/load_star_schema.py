@@ -64,6 +64,8 @@ from src.config.env import load_project_env
 from src.storage.storage import get_storage_from_env
 from src.utils import storage_tools
 
+from src.utils.log_to_db import log_to_db
+
 try:
     import psycopg
 except Exception:  # pragma: no cover
@@ -589,7 +591,7 @@ def _bootstrap_sql(conn) -> None:
 
 
 
-def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremental: bool = True) -> dict:
+def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremental: bool = True, task_id: Optional[str] = None) -> dict:
     """
     Load the Gold star schema from Silver datasets.
 
@@ -649,10 +651,15 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
         # Compose a run_id for this import
         run_id = f"gold-load-{dt.replace('-', '')}-{source}"
         if run_id in already_imported:
-            logger.info(f"[SKIP] Dataset {key} (run_id={run_id}) already imported.")
+            msg= f"[SKIP] Dataset {key} (run_id={run_id}) already imported."
+            logger.info(msg)
+            log_to_db('load_star_schema', 'INFO',msg, task_id=task_id)
             continue
 
-        logger.info(f"[IMPORT] Dataset {key} (run_id={run_id}) ...")
+        msg = f"[IMPORT] Dataset {key} (run_id={run_id}) ..."
+        logger.info(msg)
+        log_to_db('load_star_schema', 'INFO', msg, task_id=task_id) 
+
         # Load dataset
         if source == "status_analytics":
             dataset = storage_tools.load_parquet_dataset(storage_analytics, key)
@@ -660,13 +667,18 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
             storage_merged = get_storage_from_env("silver", "merged")
             dataset = storage_tools.load_parquet_dataset(storage_merged, key)
         if dataset is None or dataset.empty:
-            logger.warning(f"[SKIP] Dataset {key} is empty or unreadable.")
+            msg = f"[SKIP] Dataset {key} is empty or unreadable."
+            logger.warning(msg) 
+            log_to_db('load_star_schema', 'WARNING', msg, task_id=task_id)
             continue
 
         snapshot_dt = dt
         source_label = key
         staging_df = _prepare_staging_frame(dataset, snapshot_dt=snapshot_dt, run_id=run_id)
-        logger.info(f"Staging rows: {len(staging_df):,}")
+
+        msg = f"Staging rows: {len(staging_df):,}"
+        logger.info(msg)
+        log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
 
         steps = [
             "Bootstrap schema",
@@ -677,26 +689,43 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
             "Commit",
             "Purge staging",
         ]
+
         with tqdm(total=len(steps), unit="step", desc=f"Gold load {run_id}") as pbar:
             with psycopg.connect(dsn, autocommit=False) as conn:
-                pbar.set_postfix_str("Bootstrap schema")
+
+                msg = f"Bootstrap schema"
+                logger.info(msg)
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)  
+                pbar.set_postfix_str()
                 _bootstrap_sql(conn)
                 pbar.update(1)
 
+                msg = f"Clear staging"
+                logger.info(msg)
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
                 pbar.set_postfix_str("Clear staging")
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM gold.stg_offer WHERE run_id = %s", (run_id,))
                 pbar.update(1)
 
-                pbar.set_postfix_str("COPY staging")
+                msg = f"COPY staging"
+                logger.info(msg)                    
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
+                pbar.set_postfix_str(msg)
                 _copy_staging(conn, staging_df)
                 pbar.update(1)
 
-                pbar.set_postfix_str("Upsert dimensions & fact")
+                msg = f"Upsert dimensions & fact"
+                logger.info(msg)
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)    
+                pbar.set_postfix_str(msg)
                 _upsert_dimensions_and_fact(conn, run_id)
                 pbar.update(1)
 
-                pbar.set_postfix_str("Count rows")
+                msg = f"Count rows"
+                logger.info(msg)
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
+                pbar.set_postfix_str(msg)
                 with conn.cursor() as cur:
                     cur.execute("SELECT COUNT(*) FROM gold.fact_offre_emploi")
                     fact_count = cur.fetchone()[0]
@@ -711,7 +740,11 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                     dim_experience_count = cur.fetchone()[0]
                 pbar.update(1)
 
-                pbar.set_postfix_str("Commit")
+                msg = f"Commit"
+                logger.info(msg)
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
+                pbar.set_postfix_str(msg)
+                
                 conn.commit()
                 pbar.update(1)
 
@@ -724,6 +757,10 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                     conn.commit()
 
                 # Purge staging rows for this run.
+                msg = f"Purge staging"
+                logger.info(msg)
+                log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
+                pbar.set_postfix_str(msg)
                 #
                 # Design choice: stg_offer is a transit zone, not a storage layer.
                 # Once a run is committed to the fact/dimension tables and recorded
@@ -735,12 +772,16 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                 # Trade-off: past staging rows cannot be inspected directly in SQL
                 # after the run. To debug a historical load, reload the parquet
                 # identified by imported_snapshots.source and re-run _prepare_staging_frame.
-                pbar.set_postfix_str("Purge staging")
+                pbar.set_postfix_str(msg)
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM gold.stg_offer WHERE run_id = %s", (run_id,))
                 conn.commit()
                 pbar.update(1)
 
+        msg=f"Completed import of dataset {key} (run_id={run_id}): {fact_count:,} fact rows, {dim_rome_count:,} ROME dim rows, {dim_contract_count:,} contract dim rows, {dim_experience_count:,} experience dim rows."
+        logger.info(msg)
+        log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
+        pbar.set_postfix_str(msg)
         results.append({
             "run_id": run_id,
             "snapshot_dt": snapshot_dt,

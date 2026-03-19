@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 13,
+  "id": 43,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -75,7 +75,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 200
+                "value": 182
               }
             ]
           },
@@ -162,7 +162,10 @@
   ],
   "refresh": "5s",
   "schemaVersion": 39,
-  "tags": [],
+  "tags": [
+    "Silver",
+    "France-Travail"
+  ],
   "templating": {
     "list": []
   },
@@ -172,8 +175,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "2.SILVER - 4.Create Snaphot history",
-  "uid": "c77782aa-8c7a-4408-9fc3-990f925cb14d",
-  "version": 5,
+  "title": "2.SILVER - 1.Normalize FT",
+  "uid": "b045e83f-7b11-4a3f-8a46-e166953975a2",
+  "version": 1,
   "weekStart": ""
 }
