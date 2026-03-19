@@ -5,7 +5,7 @@ datasources:
     type: postgres
     uid: jobstore
     access: proxy
-    url: postgres:5432
+    url: jobmarket-postgres:5432
     database: jobdb
     user: jobuser
     secureJsonData:
