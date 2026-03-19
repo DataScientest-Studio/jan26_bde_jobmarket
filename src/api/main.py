@@ -1681,7 +1681,7 @@ def run_load_star_schema_task(task_id: str, source_mode: str, incremental: bool)
     start_monotonic = time.monotonic()
     try:
         log_to_db('load_star_schema', 'INFO', f"Starting star schema load (source_mode={source_mode}, incremental={incremental})", task_id=task_id)
-        result = run_star_schema_loader(source_mode=source_mode, incremental=incremental)
+        result = run_star_schema_loader(source_mode=source_mode, incremental=incremental, task_id=task_id)
         duration_sec = time.monotonic() - start_monotonic
 
         if not result:
