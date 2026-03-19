@@ -1248,7 +1248,7 @@ def run_merge_datasets_task(
         set_task(task_id, message=message, current_step=step)
 
     try:
-        log_to_db('merge_datasets', 'INFO', "Starting FT + WTTJ dataset merge", task_id=task_id)
+        log_to_db('merge_datasets', 'INFO', f"Starting FT + WTTJ dataset merge : FT={ft_prefix}, WTTJ={wttj_prefix}", task_id=task_id)
         result = merge_ft_wttj_datasets(
             ft_prefix=ft_prefix,
             wttj_prefix=wttj_prefix,
@@ -2475,8 +2475,8 @@ to create a unified training dataset.
 async def merge_datasets_endpoint(
     background_tasks: BackgroundTasks,
     background: bool = Query(False, description="Run in background"),
-    ft_prefix: Optional[str] = Query(None, description="FT data prefix (auto-detect if not specified)"),
-    wttj_prefix: Optional[str] = Query(None, description="WTTJ data prefix (auto-detect if not specified)"),
+    ft_prefix: Optional[str] = Query(None, description="FT data prefix dt=yyyy-mm-dd (auto-detect if not specified)"),
+    wttj_prefix: Optional[str] = Query(None, description="WTTJ data prefix dt=yyyy-mm-dd (auto-detect if not specified)"),
     output_prefix: Optional[str] = Query(None, description="Output prefix (default: datasets/ft_wttj_merged)"),
     output_format: str = Query("parquet", description="Output format (parquet, jsonl, csv)")
 ):
