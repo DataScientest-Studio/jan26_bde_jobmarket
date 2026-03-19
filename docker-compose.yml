@@ -158,6 +158,16 @@ services:
     image: dpage/pgadmin4:latest
     container_name: jobmarket-pgadmin
     restart: unless-stopped
+    # Docker crée le dossier intermédiaire storage/ en root lors du bind mount
+    # de ./pgadmin/queries dans storage/willramarques_gmail.com.
+    # On démarre en root pour chowner storage/ (uid 5050 = pgadmin),
+    # puis on exec l'entrypoint original qui lance gunicorn.
+    user: "0:0"
+    entrypoint: >
+      /bin/sh -c "
+      chown -R 5050:0 /var/lib/pgadmin/storage &&
+      exec /entrypoint.sh
+      "
     networks:
       - jobmarket-net
     depends_on:
