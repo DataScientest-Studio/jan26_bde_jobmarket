@@ -180,6 +180,16 @@ class JobStore:
                 ),
             )
 
+    @staticmethod
+    def _normalize_row(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Renomme result_json → result pour exposer une structure cohérente."""
+        if row is None:
+            return None
+        if "result_json" in row:
+            row = dict(row)
+            row["result"] = row.pop("result_json")
+        return row
+
     def list_runs(self, source: Optional[str], status: Optional[str], limit: int) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
@@ -204,14 +214,14 @@ class JobStore:
                 """,
                 values,
             ).fetchall()
-        return rows
+        return [self._normalize_row(r) for r in rows]
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         if not self.enabled:
             return None
         with self._connect() as conn:
             row = conn.execute("select * from job_runs where run_id = %s", (run_id,)).fetchone()
-        return row
+        return self._normalize_row(row)
 
     def mark_stale(self, stale_minutes: int) -> int:
         if not self.enabled:

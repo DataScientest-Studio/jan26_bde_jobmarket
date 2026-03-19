@@ -663,6 +663,7 @@ def run_france_travail_offers_task(
         if result["success"]:
             result_payload = {
                 "run_id": result.get("run_id"),
+                "dt": started_at.strftime("%Y-%m-%d"),  # date de début — stable si le job passe J→J+1
                 "run_key": result.get("run_key"),
                 "rome_processed": result.get("rome_processed"),
                 "calls": result.get("calls"),
