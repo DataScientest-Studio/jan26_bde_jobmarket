@@ -1,11 +1,9 @@
-version: "3.9"
-
 networks:
   jobmarket-net:
     driver: bridge
 
 services:
-  postgres:
+  jobmarket-postgres:
     cpus: "2.0"
     mem_limit: 4g
     memswap_limit: 4g
@@ -26,12 +24,12 @@ services:
       - jobdb-data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
 
-  minio:
+  jobmarket-minio:
     cpus: "0.5"
-    mem_limit: 1g # Force la libération du cache
+    mem_limit: 1g
     memswap_limit: 1g
     image: minio/minio:latest
-    container_name: minio
+    container_name: jobmarket-minio
     restart: unless-stopped
     networks:
       - jobmarket-net
@@ -45,53 +43,47 @@ services:
     volumes:
       - ./data:/data
 
-  minio-init:
+  jobmarket-minio-init:
     image: minio/mc:latest
-    container_name: minio-init
+    container_name: jobmarket-minio-init
     networks:
       - jobmarket-net
     depends_on:
-      - minio
+      - jobmarket-minio
     entrypoint: >
       /bin/sh -lc "
-      mc alias set jobmarket http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
+      mc alias set jobmarket http://jobmarket-minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
       mc mb -p jobmarket/jobmarket || true &&
       echo '✅ Bucket ready: jobmarket'
       "
     restart: "no"
 
-  jupyter:
+  jobmarket-jupyter:
     cpus: "1.5"
     mem_limit: 5g
     memswap_limit: 5g
-    build: .                          # pour utiliser le Dockerfile local
+    build: .
     container_name: jobmarket-jupyter
     restart: unless-stopped
     networks:
       - jobmarket-net
     depends_on:
-      - minio-init
+      - jobmarket-minio-init
     ports:
       - "8888:8888"
     environment:
       JUPYTER_TOKEN: jobmarket
-      PYTHONPATH: /home/jovyan/work    #  pour
+      PYTHONPATH: /home/jovyan/work
 
       STORAGE_BACKEND: s3
-      S3_ENDPOINT_URL: http://minio:9000
+      S3_ENDPOINT_URL: http://jobmarket-minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: jobmarket
       S3_PREFIX: ""
 
-      # optionnel : dataset courant
-      # DATASET: france_travail
-
     volumes:
-      # Code (repo entier)
       - ./:/home/jovyan/work
-
-      # Mapping explicite notebooks pour éviter de devoir naviguer dans le filesystem du container pour les trouver
       - ./notebooks:/home/jovyan/notebooks
 
     working_dir: /home/jovyan/work
@@ -113,28 +105,27 @@ services:
     restart: unless-stopped
     networks:
       - jobmarket-net
-    logging:                        # Keep log to investigate crashes
+    logging:
       driver: "json-file"
       options:
         max-size: "20m"
         max-file: "5"
     depends_on:
-      - minio-init
-      - postgres
+      - jobmarket-minio-init
+      - jobmarket-postgres
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      # Override pour MinIO (accès interne Docker)
       STORAGE_BACKEND: s3
-      S3_ENDPOINT_URL: http://minio:9000
-      JOBSTORE_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      S3_ENDPOINT_URL: http://jobmarket-minio:9000
+      JOBSTORE_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@jobmarket-postgres:5432/${POSTGRES_DB}
     volumes:
       - ./src:/app/src
-      - ./logs:/app/logs  # Logs accessibles sur l'hôte
+      - ./logs:/app/logs
 
-  grafana:
+  jobmarket-grafana:
     cpus: "0.5"
     mem_limit: 512m
     memswap_limit: 1g
@@ -144,7 +135,7 @@ services:
     networks:
       - jobmarket-net
     depends_on:
-      - postgres
+      - jobmarket-postgres
     ports:
       - "3000:3000"
     env_file:
@@ -160,7 +151,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
 
-  pgadmin:
+  jobmarket-pgadmin:
     cpus: "0.5"
     mem_limit: 512m
     memswap_limit: 512m
@@ -170,7 +161,7 @@ services:
     networks:
       - jobmarket-net
     depends_on:
-      - postgres
+      - jobmarket-postgres
     ports:
       - "5050:80"
     env_file:
@@ -182,8 +173,9 @@ services:
     volumes:
       - pgadmin-data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json
+      - ./pgadmin/queries:/var/lib/pgadmin/storage/willramarques_gmail.com
 
-  airflow:
+  jobmarket-airflow:
     cpus: "1.0"
     mem_limit: 2g
     memswap_limit: 2g
@@ -195,15 +187,15 @@ services:
     networks:
       - jobmarket-net
     depends_on:
-      - postgres
+      - jobmarket-postgres
       - jobmarket-api
     env_file:
       - .env
     environment:
       # Variables qui ne peuvent pas être dans .env :
-      # - SQL_ALCHEMY_CONN : hostname réseau Docker (postgres:5432) non résolvable hors conteneur
+      # - SQL_ALCHEMY_CONN : hostname réseau Docker (jobmarket-postgres:5432) non résolvable hors conteneur
       # - SIMPLE_AUTH_MANAGER_USERS : interpolation ${VAR} non supportée dans env_file
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@jobmarket-postgres:5432/airflow
       # Format attendu : "username:ROLE" — ADMIN est le rôle Airflow (pas le mot de passe)
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_ADMIN_USER}:ADMIN"
     ports:
@@ -235,6 +227,25 @@ services:
       python3 -c 'import json,os; u=os.environ.get(\"AIRFLOW_ADMIN_USER\",\"admin\"); p=os.environ.get(\"AIRFLOW_ADMIN_PASSWORD\",\"admin\"); open(\"/opt/airflow/simple_auth_passwords.json\",\"w\").write(json.dumps({u:p})+\"\\n\")' &&
       airflow connections delete jobmarket_api 2>/dev/null; airflow connections add jobmarket_api --conn-type http --conn-host jobmarket-api --conn-port 8000 &&
       airflow standalone"
+
+  jobmarket-streamlit:
+    build:
+      context: ./visualization/streamlit
+      dockerfile: Dockerfile
+    container_name: jobmarket-streamlit
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
+    depends_on:
+      - jobmarket-postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: jobmarket-postgres
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./visualization/streamlit:/app
 
 volumes:
   grafana-data:
