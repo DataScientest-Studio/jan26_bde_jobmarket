@@ -24,6 +24,7 @@ class IngestOffersResponse(BaseJobResponse):
     records_count = written (nombre d'offres écrites).
     """
     run_id: Optional[str] = Field(None, description="Identifiant unique du run", example="20260223T120000Z")
+    dt: Optional[str] = Field(None, description="Date de début de l'ingestion (YYYY-MM-DD) — stable même si le job passe de J à J+1", example="2026-02-23")
     run_key: Optional[str] = Field(None, description="Clé des métadonnées du run")
     rome_processed: Optional[int] = Field(None, description="Nombre de codes ROME traités", example=532)
     calls: Optional[int] = Field(None, description="Nombre d'appels API effectués", example=1500)
