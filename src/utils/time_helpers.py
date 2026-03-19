@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 def utc_dt_str() -> str:
@@ -5,8 +6,15 @@ def utc_dt_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 def utc_run_id() -> str:
-    """ Generate a unique run ID based on the current UTC timestamp, in ISO format without separators. """
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    """ 
+    Generate a unique run ID based on the current UTC timestamp + 4-char random suffix.
+    To garantee uniqueness for processing launch in a same second, 
+    the timestamp is in the format YYYYMMDDTHHMMSSZ (ISO 8601 basic format with 'Z' for UTC), 
+    followed by a random 4-character hexadecimal string
+      """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = uuid.uuid4().hex[:4]
+    return f"{ts}-{suffix}"
 
 def to_iso_z(dt: datetime) -> str:
     """ Convert a datetime to ISO 8601 format with 'Z' suffix for UTC timezone. """
