@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 10,
+  "id": 8,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -63,7 +63,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 1137
+                "value": 906
               }
             ]
           },
@@ -88,18 +88,6 @@
               {
                 "id": "custom.width",
                 "value": 85
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "duration_sec"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 135
               }
             ]
           }
@@ -135,7 +123,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \r\n  timestamp,\r\n  level,\r\n  message,\r\n  duration_sec,\r\n  extra_metadata\r\nFROM ingestion_logs\r\nWHERE \r\n  endpoint = 'normalize_ft_jobs'\r\n  AND $__timeFilter(timestamp)\r\nORDER BY timestamp DESC\r\nLIMIT 100",
+          "rawSql": "SELECT \r\n  timestamp,\r\n  level,\r\n  message,\r\n  duration_sec,\r\n  extra_metadata\r\nFROM ingestion_logs\r\nWHERE \r\n  endpoint = 'normalize_wttj_jobs'\r\n  AND $__timeFilter(timestamp)\r\nORDER BY timestamp DESC\r\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -160,12 +148,9 @@
       "type": "table"
     }
   ],
-  "refresh": "5s",
+  "refresh": "30s",
   "schemaVersion": 39,
-  "tags": [
-    "Silver",
-    "France-Travail"
-  ],
+  "tags": [],
   "templating": {
     "list": []
   },
@@ -175,8 +160,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "2.SILVER - 1.Normalize FT",
-  "uid": "b045e83f-7b11-4a3f-8a46-e166953975a2",
-  "version": 5,
+  "title": "Normalize WTTJ Copy",
+  "uid": "dc5801bc-7e5c-4f35-a8db-38462a135ded",
+  "version": 1,
   "weekStart": ""
 }

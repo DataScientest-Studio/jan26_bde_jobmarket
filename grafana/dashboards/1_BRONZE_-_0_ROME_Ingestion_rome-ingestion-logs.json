@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 6,
+  "id": 37,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -115,24 +115,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Offres"
+              "options": "Records"
             },
             "properties": [
               {
                 "id": "custom.width",
                 "value": 90
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Erreurs"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 80
               }
             ]
           },
@@ -185,7 +173,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  timestamp,\n  level,\n  message,\n  task_id,\n  duration_sec,\n  records_count,\n  error_count,\n  extra_metadata\nFROM ingestion_logs\nWHERE \n  endpoint = 'france_travail_offers'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 100",
+          "rawSql": "SELECT \n  timestamp,\n  level,\n  message,\n  task_id,\n  duration_sec,\n  records_count,\n  extra_metadata\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -206,7 +194,7 @@
           }
         }
       ],
-      "title": "France Travail Offers Ingestion Logs",
+      "title": "ROME Ingestion Logs",
       "transformations": [
         {
           "id": "organize",
@@ -214,8 +202,7 @@
             "excludeByName": {},
             "indexByName": {
               "duration_sec": 4,
-              "error_count": 6,
-              "extra_metadata": 7,
+              "extra_metadata": 6,
               "level": 1,
               "message": 3,
               "records_count": 5,
@@ -224,11 +211,10 @@
             },
             "renameByName": {
               "duration_sec": "Durée (s)",
-              "error_count": "Erreurs",
               "extra_metadata": "Metadata",
               "level": "Niveau",
               "message": "Message",
-              "records_count": "Offres",
+              "records_count": "Records",
               "task_id": "Task ID",
               "timestamp": "Timestamp"
             }
@@ -324,11 +310,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Operations\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'france_travail_offers'\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Operations\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
-      "title": "Operations Count (5min windows)",
+      "title": "Operations Count  (5min windows)",
       "type": "timeseries"
     },
     {
@@ -418,7 +404,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Errors\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'france_travail_offers'\n  AND level IN ('ERROR', 'WARNING')\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(timestamp, '5m') as time,\n  COUNT(*) as \"Errors\"\nFROM ingestion_logs\nWHERE \n  endpoint = 'rome_metiers'\n  AND level IN ('ERROR', 'WARNING')\n  AND $__timeFilter(timestamp)\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -429,8 +415,8 @@
   "refresh": "10s",
   "schemaVersion": 39,
   "tags": [
-    "Bronze",
-    "France-Travail"
+    "rome",
+    "Bronze"
   ],
   "templating": {
     "list": []
@@ -441,8 +427,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "1.BRONZE - 1.France Travail Offers Ingestion",
-  "uid": "france-travail-offers-logs",
-  "version": 7,
+  "title": "1.BRONZE - 0.ROME Ingestion",
+  "uid": "rome-ingestion-logs",
+  "version": 1,
   "weekStart": ""
 }

@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 14,
+  "id": 40,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -58,12 +58,24 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "message"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 1137
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "timestamp"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 204
+                "value": 200
               }
             ]
           },
@@ -75,19 +87,19 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 78
+                "value": 85
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "message"
+              "options": "duration_sec"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 921
+                "value": 135
               }
             ]
           }
@@ -123,7 +135,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \r\n  timestamp,\r\n  level,\r\n  message,\r\n  duration_sec,\r\n  extra_metadata\r\nFROM ingestion_logs\r\nWHERE \r\n  endpoint = 'normalize_wttj_jobs_rome_prediction'\r\n  AND $__timeFilter(timestamp)\r\nORDER BY timestamp DESC\r\nLIMIT 100",
+          "rawSql": "SELECT \r\n  timestamp,\r\n  level,\r\n  message,\r\n  duration_sec,\r\n  extra_metadata\r\nFROM ingestion_logs\r\nWHERE \r\n  endpoint = 'status_evolution'\r\n  AND $__timeFilter(timestamp)\r\nORDER BY timestamp DESC\r\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -148,7 +160,7 @@
       "type": "table"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": [],
   "templating": {
@@ -160,8 +172,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "3.GOLD - 1.ROME Prediction",
-  "uid": "a02af5fb-b940-4d71-9c94-423f2077cdf6",
-  "version": 4,
+  "title": "2.SILVER - 4.Create Snaphot history",
+  "uid": "c77782aa-8c7a-4408-9fc3-990f925cb14d",
+  "version": 2,
   "weekStart": ""
 }
