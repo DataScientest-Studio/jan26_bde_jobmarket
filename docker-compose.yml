@@ -68,7 +68,7 @@ services:
     networks:
       - jobmarket-net
     depends_on:
-      - jobmarket-minio-in
+      - jobmarket-minio-init
     ports:
       - "8888:8888"
     environment:
@@ -250,12 +250,14 @@ services:
       - jobmarket-postgres
     env_file:
       - .env
+    # Overide POSTGRES_HOST inside Dcoker NetWork (jobmarket-net) to point to jobmarket-postgres container instead of localhost
     environment:
-      POSTGRES_HOST: jobmarket-postgres
+      JOBSTORE_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@jobmarket-postgres:5432/${POSTGRES_DB}
     ports:
       - "8501:8501"
     volumes:
       - ./visualization/streamlit:/app
+      - ./src:/app/src
 
 volumes:
   grafana-data:
