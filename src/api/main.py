@@ -142,6 +142,60 @@ _model_lock = threading.Lock()
 # Note: lost on container restart; use JobStore for persistence across restarts
 ACTIVE_TASKS: Dict[str, Dict[str, Any]] = {}
 
+# Mutex lock to to prevent concurent access to ACTIVE_TASKS for thread-safe updates 
+ACTIVE_TASKS_LOCK = threading.Lock()  
+
+def task_check_and_register(operation: str, task_id: str, task_info: dict) -> None:
+    """Vérifie atomiquement qu'aucun run identique n'est en cours, puis enregistre.
+
+    Levée d'exception HTTPException 409 si l'opération tourne déjà.
+    Doit être appelé avant tout traitement — background ET synchrone.
+    """
+    # Get a lock and release it after the check and registration
+    #  to ensure thread-safe access to ACTIVE_TASKS
+    with ACTIVE_TASKS_LOCK:
+        for existing_id, info in ACTIVE_TASKS.items():
+            if info.get("operation") == operation and info.get("status") == STATUS_RUNNING:
+                started = info.get("started_at")
+                started_str = started.isoformat() if isinstance(started, datetime) else str(started)
+                msg = (
+                    f"[task_check_and_register] CONFLICT — operation='{operation}' already running "
+                    f"| existing_task_id={existing_id} | started_at={started_str} "
+                    f"| rejected_task_id={task_id}"
+                )
+                logger.warning(msg)
+                try:
+                    # TODO : See to normalize enpoint name by removing hardcoded values and update Granfana dashboards accordingly
+                    log_to_db(
+                        endpoint=operation.removeprefix("ingest_"),
+                        level="WARNING",
+                        message=msg,
+                        task_id=task_id,
+                        status="REJECTED",
+                        conflict_task_id=existing_id,
+                        started_at=started_str,
+                    )
+                except Exception:
+                    pass  # log_to_db non bloquant
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": f"Operation '{operation}' is already running",
+                        "task_id": existing_id,
+                        "started_at": started_str,
+                    },
+                )
+        ACTIVE_TASKS[task_id] = task_info
+
+
+def _safe_finish_task(task_id: str, status: str, **extra) -> None:
+    """Met à jour le statut final d'une tâche de manière thread-safe."""
+    with ACTIVE_TASKS_LOCK:
+        if task_id in ACTIVE_TASKS:
+            ACTIVE_TASKS[task_id]["status"] = status
+            ACTIVE_TASKS[task_id]["completed_at"] = datetime.now(timezone.utc)
+            ACTIVE_TASKS[task_id].update(extra)
+
 # ------------------------------------
 # Logging setup
 # ------------------------------------
@@ -1742,16 +1796,17 @@ def _purge_completed_tasks(operations_filter: Optional[list] = None) -> None:
         operations_filter: if provided, only purge tasks matching these operation names.
     """
     current_time = datetime.now(timezone.utc)
-    tasks_to_remove = [
-        task_id
-        for task_id, task_info in ACTIVE_TASKS.items()
-        if task_info.get("status") == STATUS_SUCCESS
-        and task_info.get("completed_at")
-        and (current_time - task_info["completed_at"]).total_seconds() > 300
-        and (operations_filter is None or task_info.get("operation") in operations_filter)
-    ]
-    for task_id in tasks_to_remove:
-        del ACTIVE_TASKS[task_id]
+    with ACTIVE_TASKS_LOCK:
+        tasks_to_remove = [
+            task_id
+            for task_id, task_info in ACTIVE_TASKS.items()
+            if task_info.get("status") == STATUS_SUCCESS
+            and task_info.get("completed_at")
+            and (current_time - task_info["completed_at"]).total_seconds() > 300
+            and (operations_filter is None or task_info.get("operation") in operations_filter)
+        ]
+        for task_id in tasks_to_remove:
+            del ACTIVE_TASKS[task_id]
 
 
 @app.get(
@@ -1977,26 +2032,38 @@ async def ingest_rome_metiers_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("ingest_rome_metiers", task_id, {
             "operation": "ingest_rome_metiers",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": "Ingesting ROME job codes..."
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="import", source="rome_metiers", params={"background": True}, message="Ingesting ROME job codes...")
         background_tasks.add_task(run_rome_metiers_task, task_id)
         return IngestResponse(success=True, message=f"ROME code ingestion started in background (task_id: {task_id})", task_id=task_id, key=task_id)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("ingest_rome_metiers", task_id, {
+            "operation": "ingest_rome_metiers",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             result = ingest_rome_metiers()
             if result["success"]:
                 logger.info(f"Ingestion successful: {result['records_count']} ROME codes")
             else:
                 logger.error(f"Ingestion failed: {result.get('error')}")
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return IngestResponse(**result)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Ingestion error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
@@ -2029,27 +2096,39 @@ async def ingest_france_travail_offers_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("ingest_france_travail_offers", task_id, {
             "operation": "ingest_france_travail_offers",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Ingesting France Travail offers (max_rome_codes: {max_rome_codes or 'all'})...",
             "params": {"max_rome_codes": max_rome_codes, "window_days": window_days, "max_windows": max_windows}
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="import", source="france_travail_offers", params={"background": True, "max_rome_codes": max_rome_codes, "window_days": window_days, "max_windows": max_windows, "binary_split_min_seconds": binary_split_min_seconds}, message=f"Ingesting France Travail offers (max_rome_codes: {max_rome_codes or 'all'})...")
         background_tasks.add_task(run_france_travail_offers_task, task_id, window_days, max_windows, binary_split_min_seconds, max_rome_codes)
         return IngestOffersResponse(success=True, message=f"France Travail offer ingestion started in background (task_id: {task_id})", task_id=task_id, run_id=task_id)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("ingest_france_travail_offers", task_id, {
+            "operation": "ingest_france_travail_offers",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             result = ingest_france_travail_offers(storage=None, client=None, window_days=window_days, max_windows=max_windows, binary_split_min_seconds=binary_split_min_seconds, max_rome_codes=max_rome_codes, logger_override=None)
             if result["success"]:
                 logger.info(f"Ingestion successful: {result['written']} offers, {result['rome_processed']} ROME codes")
             else:
                 logger.error(f"Ingestion failed: {result.get('error')}")
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return IngestOffersResponse(**result, records_count=result.get("written"))  # records_count = written
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Ingestion error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
@@ -2090,65 +2169,77 @@ async def ingest_wttj_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("ingest_welcome_to_jungle", task_id, {
             "operation": "ingest_welcome_to_jungle",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"WTTJ ingestion in progress (mode: {mode}, jobs: {max_jobs or 'all'}, companies: {max_companies or 'all'}, workers: {workers})...",
-            "params": {"mode": mode, 
-                       "max_jobs": max_jobs, 
-                       "max_companies": max_companies, 
-                       "workers": workers, 
-                       "part_size": part_size, 
-                       "provided_run_id": provided_run_id, 
+            "params": {"mode": mode,
+                       "max_jobs": max_jobs,
+                       "max_companies": max_companies,
+                       "workers": workers,
+                       "part_size": part_size,
+                       "provided_run_id": provided_run_id,
                        }
-        }
+        })
         if job_store.enabled:
-            job_store.create(run_id=task_id, 
-                             job_type="import", 
-                             source="wttj", 
-                             params={"background": True, 
-                                     "mode": mode, 
-                                     "max_jobs": max_jobs, 
-                                     "max_companies": max_companies, 
-                                     "workers": workers, 
-                                     "part_size": part_size, 
-                                     "provided_run_id": provided_run_id, 
+            job_store.create(run_id=task_id,
+                             job_type="import",
+                             source="wttj",
+                             params={"background": True,
+                                     "mode": mode,
+                                     "max_jobs": max_jobs,
+                                     "max_companies": max_companies,
+                                     "workers": workers,
+                                     "part_size": part_size,
+                                     "provided_run_id": provided_run_id,
                                      "store_html_mode": store_html_mode
                                      },
                             message=f"WTTJ ingestion in progress (mode: {mode})..."
                             )
-            
-        background_tasks.add_task(run_welcome_to_jungle_task, 
-                                  task_id, 
-                                  mode, 
-                                  max_jobs, 
-                                  max_companies, 
-                                  workers, 
-                                  part_size, 
+
+        background_tasks.add_task(run_welcome_to_jungle_task,
+                                  task_id,
+                                  mode,
+                                  max_jobs,
+                                  max_companies,
+                                  workers,
+                                  part_size,
                                   provided_run_id or task_id,
                                   store_html_mode
                                   )
-        
+
         return IngestWTTJResponse(success=True, message=f"WTTJ ingestion started in background (task_id: {task_id})", task_id=task_id, run_id=task_id)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("ingest_welcome_to_jungle", task_id, {
+            "operation": "ingest_welcome_to_jungle",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             result = ingest_welcome_to_the_jungle(
-                storage=None, 
-                mode=mode, 
-                max_jobs=max_jobs, 
-                max_companies=max_companies, 
-                workers=workers, 
-                part_size=part_size, 
-                provided_run_id=provided_run_id 
+                storage=None,
+                mode=mode,
+                max_jobs=max_jobs,
+                max_companies=max_companies,
+                workers=workers,
+                part_size=part_size,
+                provided_run_id=provided_run_id
             )
             if result["success"]:
                 logger.info(f"Ingestion successful: {result.get('total_written')} records")
             else:
                 logger.error(f"Ingestion failed: {result.get('error')}")
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return IngestWTTJResponse(**result, records_count=result.get("total_written"))  # records_count = total_written
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"WTTJ ingestion error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
@@ -2174,30 +2265,37 @@ async def collect_sitemaps_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("collect_wttj_sitemaps", task_id, {
             "operation": "collect_wttj_sitemaps",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Collecting WTTJ sitemaps (max_results: {max_results or 'all'}, delay: {delay}s)...",
             "params": {"delay": delay, "max_results": max_results}
-        }
+        })
         if job_store.enabled:
-            job_store.create(run_id=task_id, 
-                             job_type="import", 
-                             source="wttj_sitemaps", 
-                             params={"background": True, 
-                                     "delay": delay, 
-                                     "max_results": max_results}, 
+            job_store.create(run_id=task_id,
+                             job_type="import",
+                             source="wttj_sitemaps",
+                             params={"background": True,
+                                     "delay": delay,
+                                     "max_results": max_results},
                             message=f"Collecting WTTJ sitemaps...")
-            
+
         background_tasks.add_task(run_collect_sitemaps_task, task_id, delay, max_results)
-        return CollectSitemapsResponse(success=True, message=f"WTTJ sitemap collection started in background (task_id: {task_id})", 
-                                       urls_count=0, 
-                                       storage_key=task_id, 
-                                       elapsed_s=None, 
+        return CollectSitemapsResponse(success=True, message=f"WTTJ sitemap collection started in background (task_id: {task_id})",
+                                       urls_count=0,
+                                       storage_key=task_id,
+                                       elapsed_s=None,
                                        error=None)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("collect_wttj_sitemaps", task_id, {
+            "operation": "collect_wttj_sitemaps",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             start_time = time.time()
             result = collect_sitemap_urls(query="", entreprise="", ville="", max_results=max_results, delay=delay)
@@ -2207,6 +2305,7 @@ async def collect_sitemaps_endpoint(
                 urls_count = result.get("total_processed", 0)
                 storage_key = result.get("storage_key")
                 logger.info(f"Collection successful: {urls_count} URLs in {elapsed_s:.2f}s (storage: {storage_key})")
+                _safe_finish_task(task_id, STATUS_SUCCESS)
                 return CollectSitemapsResponse(success=True,
                                                message=f"Collection successful: {urls_count} URLs collected",
                                                urls_count=urls_count,
@@ -2217,13 +2316,18 @@ async def collect_sitemaps_endpoint(
             else:
                 error_msg = result.get("error", "Unknown error")
                 logger.error(f"Collection failed: {error_msg}")
-                return CollectSitemapsResponse(success=False, 
-                                               message=f"Collection failed: {error_msg}", 
-                                               urls_count=0, 
-                                               storage_key=None, 
-                                               elapsed_s=elapsed_s, 
+                _safe_finish_task(task_id, STATUS_FAILED)
+                return CollectSitemapsResponse(success=False,
+                                               message=f"Collection failed: {error_msg}",
+                                               urls_count=0,
+                                               storage_key=None,
+                                               elapsed_s=elapsed_s,
                                                error=error_msg)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Sitemap collection error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Sitemap collection error: {str(e)}")
 
@@ -2259,59 +2363,66 @@ async def ingest_wttj_jobs_optimized_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("ingest_wttj_opt", task_id, {
             "operation": "ingest_wttj_opt",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Optimized WTTJ ingestion in progress (mode: {mode}, max_urls: {max_urls or 'all'}, workers: {workers})...",
             "params": {"mode": mode, "max_urls": max_urls, "workers": workers, "part_size": part_size, "delay": delay, "force_download_urls": force_download_urls}
-        }
+        })
         if job_store.enabled:
-            job_store.create(run_id=task_id, 
-                             job_type="import", 
-                             source="wttj_opt", 
-                             params={"background": True, 
-                                     "mode": mode, 
-                                     "max_urls": max_urls, 
-                                     "workers": workers, 
-                                     "part_size": part_size, 
-                                     "delay": delay, 
+            job_store.create(run_id=task_id,
+                             job_type="import",
+                             source="wttj_opt",
+                             params={"background": True,
+                                     "mode": mode,
+                                     "max_urls": max_urls,
+                                     "workers": workers,
+                                     "part_size": part_size,
+                                     "delay": delay,
                                      "force_download_urls": force_download_urls
-                                     }, 
+                                     },
                             message=f"Optimized WTTJ ingestion in progress..."
                             )
-            
-        background_tasks.add_task(run_wttj_job_opt_task, 
-                                  task_id, 
-                                  mode, 
-                                  max_urls, 
-                                  workers, 
-                                  part_size, 
-                                  delay, 
+
+        background_tasks.add_task(run_wttj_job_opt_task,
+                                  task_id,
+                                  mode,
+                                  max_urls,
+                                  workers,
+                                  part_size,
+                                  delay,
                                   force_download_urls)
-        
-        return IngestWTTJOptResponse(success=True, 
-                                     message=f"Optimized WTTJ ingestion started in background (task_id: {task_id})", 
-                                     run_id=task_id, 
-                                     mode=mode, 
-                                     urls_total=None, 
-                                     urls_processed=None, 
-                                     urls_ok=None, 
-                                     urls_ko=None, 
-                                     records_written=None, 
-                                     elapsed_s=None, 
+
+        return IngestWTTJOptResponse(success=True,
+                                     message=f"Optimized WTTJ ingestion started in background (task_id: {task_id})",
+                                     run_id=task_id,
+                                     mode=mode,
+                                     urls_total=None,
+                                     urls_processed=None,
+                                     urls_ok=None,
+                                     urls_ko=None,
+                                     records_written=None,
+                                     elapsed_s=None,
                                      error=None)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("ingest_wttj_opt", task_id, {
+            "operation": "ingest_wttj_opt",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
-            result = ingest_welcome_to_the_jungle_opt(storage=None, 
-                                                      mode=mode, 
-                                                      max_urls=max_urls, 
-                                                      workers=workers, 
-                                                      part_size=part_size, 
-                                                      delay=delay, 
-                                                      provided_run_id=None, 
-                                                      progress_callback=None, 
+            result = ingest_welcome_to_the_jungle_opt(storage=None,
+                                                      mode=mode,
+                                                      max_urls=max_urls,
+                                                      workers=workers,
+                                                      part_size=part_size,
+                                                      delay=delay,
+                                                      provided_run_id=None,
+                                                      progress_callback=None,
                                                       force_download_urls=force_download_urls)
             if result.get("success"):
                 jobs_opt = result.get("jobs_opt", {})
@@ -2320,6 +2431,7 @@ async def ingest_wttj_jobs_optimized_endpoint(
                 urls_ko = jobs_opt.get("ko", 0)
                 records_written = jobs_opt.get("written", 0)
                 logger.info(f"Ingestion successful: {records_written} records ({urls_processed} URLs, {urls_ko} errors)")
+                _safe_finish_task(task_id, STATUS_SUCCESS)
                 return IngestWTTJOptResponse(success=True,
                                              message=result.get("message", ""),
                                              run_id=result.get("run_id"),
@@ -2337,20 +2449,25 @@ async def ingest_wttj_jobs_optimized_endpoint(
             else:
                 error_msg = result.get("error", "Unknown error")
                 logger.error(f"Ingestion failed: {error_msg}")
-                return IngestWTTJOptResponse(success=False, 
-                                             message=result.get("message", "Ingestion failed"), 
-                                             run_id=result.get("run_id"), 
-                                             dt=result.get("dt"), 
-                                             mode=result.get("mode"), 
-                                             urls_total=None, 
-                                             urls_processed=None, 
-                                             urls_ok=None, 
-                                             urls_ko=None, 
-                                             records_written=None, 
-                                             elapsed_s=result.get("elapsed_s"), 
-                                             storage_prefix=None, 
+                _safe_finish_task(task_id, STATUS_FAILED)
+                return IngestWTTJOptResponse(success=False,
+                                             message=result.get("message", "Ingestion failed"),
+                                             run_id=result.get("run_id"),
+                                             dt=result.get("dt"),
+                                             mode=result.get("mode"),
+                                             urls_total=None,
+                                             urls_processed=None,
+                                             urls_ok=None,
+                                             urls_ko=None,
+                                             records_written=None,
+                                             elapsed_s=result.get("elapsed_s"),
+                                             storage_prefix=None,
                                              error=error_msg)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Optimized WTTJ ingestion error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
@@ -2373,14 +2490,14 @@ def normalize_wttj_jobs_endpoint(
 ):
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("normalize_wttj_jobs", task_id, {
             "operation": "normalize_wttj_jobs",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"WTTJ normalization in progress (format: {output_format})...",
             "params": {"dt": dt, "output_format": output_format},
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id,
                              job_type="data",
@@ -2396,10 +2513,25 @@ def normalize_wttj_jobs_endpoint(
         return NormalizeWTTJResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0,
                                      success=True, message=f"WTTJ normalization started in background (task_id: {task_id})", task_id=task_id)
     else:
-        r = normalize_wttj_jobs(dt, output_format)
-        return NormalizeWTTJResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
-                                     success=(r.status == STATUS_SUCCESS), message=f"WTTJ normalization {r.status}",
-                                     records_count=r.rows)
+        task_id = utc_run_id()
+        task_check_and_register("normalize_wttj_jobs", task_id, {
+            "operation": "normalize_wttj_jobs",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
+        try:
+            r = normalize_wttj_jobs(dt, output_format)
+            _safe_finish_task(task_id, STATUS_SUCCESS if r.status == STATUS_SUCCESS else STATUS_FAILED)
+            return NormalizeWTTJResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
+                                         success=(r.status == STATUS_SUCCESS), message=f"WTTJ normalization {r.status}",
+                                         records_count=r.rows)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
+        except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise HTTPException(status_code=500, detail=f"WTTJ normalization error: {str(e)}")
 
 
 @app.post(
@@ -2417,15 +2549,14 @@ def normalize_ft_jobs_endpoint(
 ):
     if background:
         task_id = utc_run_id()
-
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("normalize_ft_jobs", task_id, {
             "operation": "normalize_ft_jobs",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"FT normalization in progress (format: {output_format})...",
             "params": {"dt": dt, "output_format": output_format},
-        }
+        })
 
         if job_store.enabled:
 
@@ -2444,10 +2575,25 @@ def normalize_ft_jobs_endpoint(
         return NormalizeFTResponse(job_id=task_id, status="RUNNING", dt=dt, format=output_format, files=[], errors=0,
                                     success=True, message=f"FT normalization started in background (task_id: {task_id})", task_id=task_id)
     else:
-        r = normalize_ft_jobs(dt, output_format)
-        return NormalizeFTResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
-                                    success=(r.status == STATUS_SUCCESS), message=f"FT normalization {r.status}",
-                                    records_count=r.rows)
+        task_id = utc_run_id()
+        task_check_and_register("normalize_ft_jobs", task_id, {
+            "operation": "normalize_ft_jobs",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
+        try:
+            r = normalize_ft_jobs(dt, output_format)
+            _safe_finish_task(task_id, STATUS_SUCCESS if r.status == STATUS_SUCCESS else STATUS_FAILED)
+            return NormalizeFTResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files, errors=r.errors,
+                                        success=(r.status == STATUS_SUCCESS), message=f"FT normalization {r.status}",
+                                        records_count=r.rows)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
+        except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise HTTPException(status_code=500, detail=f"FT normalization error: {str(e)}")
 
 
 @app.post(
@@ -2484,14 +2630,14 @@ async def merge_datasets_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("merge_datasets", task_id, {
             "operation": "merge_datasets",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Merging datasets (format: {output_format})...",
             "params": {"ft_prefix": ft_prefix, "wttj_prefix": wttj_prefix, "output_prefix": output_prefix, "output_format": output_format}
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id,
                              job_type="data",
@@ -2512,6 +2658,13 @@ async def merge_datasets_endpoint(
 
         return MergeDatasetResponse(success=True, message=f"Dataset merge started in background (task_id: {task_id})", task_id=task_id, output_key=task_id)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("merge_datasets", task_id, {
+            "operation": "merge_datasets",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             result = merge_ft_wttj_datasets(ft_prefix=ft_prefix,
                                             wttj_prefix=wttj_prefix,
@@ -2521,8 +2674,13 @@ async def merge_datasets_endpoint(
                 logger.info(f"Merge successful: {result.get('total_offers')} offers merged")
             else:
                 logger.error(f"Merge failed: {result.get('error')}")
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return MergeDatasetResponse(**result, records_count=result.get("total_offers"))
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Merge error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Merge error: {str(e)}")
 
@@ -2557,14 +2715,14 @@ async def status_tracking_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("status_tracking", task_id, {
             "operation": "status_tracking",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Status tracking in progress (mode: {mode})...",
             "params": {"mode": mode, "output_prefix": output_prefix},
-        }
+        })
         if job_store.enabled:
             job_store.create(
                 run_id=task_id,
@@ -2576,8 +2734,16 @@ async def status_tracking_endpoint(
         background_tasks.add_task(run_status_tracking_task, task_id, mode, output_prefix)
         return StatusTrackingResponse(success=True, message=f"Status tracking started in background (task_id: {task_id})", task_id=task_id, mode=mode)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("status_tracking", task_id, {
+            "operation": "status_tracking",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             result = run_status_tracking(mode=mode, output_prefix=output_prefix)
+            _safe_finish_task(task_id, STATUS_SUCCESS if result["success"] else STATUS_FAILED)
             return StatusTrackingResponse(
                 success=result["success"],
                 message=result["message"],
@@ -2591,7 +2757,11 @@ async def status_tracking_endpoint(
                 elapsed_sec=result.get("elapsed_sec"),
                 records_count=result.get("total_status_records"),
             )
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Status tracking error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Status tracking error: {str(e)}")
 
@@ -2632,14 +2802,14 @@ async def status_evolution_endpoint(
 
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("status_evolution", task_id, {
             "operation": "status_evolution",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Status evolution generation in progress (mode: {mode})...",
             "params": {"mode": mode, "output_prefix": output_prefix},
-        }
+        })
         if job_store.enabled:
             job_store.create(
                 run_id=task_id,
@@ -2651,11 +2821,20 @@ async def status_evolution_endpoint(
         background_tasks.add_task(run_status_evolution_task, task_id, mode, output_prefix)
         return StatusEvolutionResponse(success=True, message=f"Status evolution generation started in background (task_id: {task_id})", task_id=task_id, mode=mode)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("status_evolution", task_id, {
+            "operation": "status_evolution",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             if mode == "daily_reconstruction":
                 run_daily_reconstruction()
+                _safe_finish_task(task_id, STATUS_SUCCESS)
                 return StatusEvolutionResponse(success=True, message="Daily reconstruction completed", mode=mode)
             result = run_status_evolution_parquet_generation(mode=mode, output_prefix=output_prefix)
+            _safe_finish_task(task_id, STATUS_SUCCESS if result["success"] else STATUS_FAILED)
             return StatusEvolutionResponse(
                 success=result["success"],
                 message="Status evolution completed" if result["success"] else "Status evolution failed",
@@ -2670,7 +2849,11 @@ async def status_evolution_endpoint(
                 elapsed_sec=result.get("elapsed_sec"),
                 records_count=result.get("rows_timeline"),
             )
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"Status evolution error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Status evolution error: {str(e)}")
 
@@ -2695,27 +2878,39 @@ async def load_geo_dim_endpoint(
     logger.info(f"load_geo_dim request (background={background})")
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("load_geo_dim", task_id, {
             "operation": "load_geo_dim",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": "dim_geo upsert in progress...",
             "params": {},
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="data", source="load_geo_dim",
                              params={"background": True}, message="dim_geo upsert in progress...")
         background_tasks.add_task(run_load_geo_dim_task, task_id)
         return DimLoadResponse(success=True, message=f"dim_geo upsert started in background (task_id: {task_id})")
     else:
+        task_id = utc_run_id()
+        task_check_and_register("load_geo_dim", task_id, {
+            "operation": "load_geo_dim",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             start = time.monotonic()
             result = load_geo_dim()
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return DimLoadResponse(success=True, message=f"dim_geo upserted: {result['upserted']:,} rows",
                                    upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2),
                                    records_count=result["upserted"])
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"load_geo_dim error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"load_geo_dim error: {str(e)}")
 
@@ -2741,27 +2936,39 @@ async def load_naf_dim_endpoint(
     logger.info(f"load_naf_dim request (background={background})")
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("load_naf_dim", task_id, {
             "operation": "load_naf_dim",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": "dim_naf upsert in progress...",
             "params": {},
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="data", source="load_naf_dim",
                              params={"background": True}, message="dim_naf upsert in progress...")
         background_tasks.add_task(run_load_naf_dim_task, task_id)
         return DimLoadResponse(success=True, message=f"dim_naf upsert started in background (task_id: {task_id})")
     else:
+        task_id = utc_run_id()
+        task_check_and_register("load_naf_dim", task_id, {
+            "operation": "load_naf_dim",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             start = time.monotonic()
             result = load_naf_dim()
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return DimLoadResponse(success=True, message=f"dim_naf upserted: {result['upserted']:,} rows",
                                    upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2),
                                    records_count=result["upserted"])
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"load_naf_dim error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"load_naf_dim error: {str(e)}")
 
@@ -2798,14 +3005,14 @@ async def load_star_schema_endpoint(
     logger.info(f"load_star_schema request (source_mode={source_mode}, incremental={incremental}, background={background})")
     if background:
         task_id = utc_run_id()
-        ACTIVE_TASKS[task_id] = {
+        task_check_and_register("load_star_schema", task_id, {
             "operation": "load_star_schema",
             "status": STATUS_RUNNING,
             "started_at": datetime.now(timezone.utc),
             "progress_pct": 0,
             "message": f"Star schema load in progress (source_mode={source_mode})...",
             "params": {"source_mode": source_mode, "incremental": incremental},
-        }
+        })
         if job_store.enabled:
             job_store.create(run_id=task_id, job_type="data", source="load_star_schema",
                              params={"background": True, "source_mode": source_mode, "incremental": incremental},
@@ -2813,13 +3020,22 @@ async def load_star_schema_endpoint(
         background_tasks.add_task(run_load_star_schema_task, task_id, source_mode, incremental)
         return StarSchemaLoadResponse(success=True, message=f"Star schema load started in background (task_id: {task_id})", task_id=task_id, source_mode=source_mode)
     else:
+        task_id = utc_run_id()
+        task_check_and_register("load_star_schema", task_id, {
+            "operation": "load_star_schema",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
         try:
             start = time.monotonic()
             result = run_star_schema_loader(source_mode=source_mode, incremental=incremental)
             elapsed = round(time.monotonic() - start, 2)
             if not result:
+                _safe_finish_task(task_id, STATUS_SUCCESS)
                 return StarSchemaLoadResponse(success=True, message="No new snapshot to import (already up to date)",
                                               source_mode=source_mode, skipped=True, elapsed_sec=elapsed)
+            _safe_finish_task(task_id, STATUS_SUCCESS)
             return StarSchemaLoadResponse(
                 success=True,
                 message=f"Star schema loaded: {result.get('staging_rows', 0):,} staging rows → {result.get('fact_rows', 0):,} fact rows",
@@ -2834,6 +3050,10 @@ async def load_star_schema_endpoint(
                 elapsed_sec=elapsed,
                 records_count=result.get("fact_rows"),
             )
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
         except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"load_star_schema error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"load_star_schema error: {str(e)}")
