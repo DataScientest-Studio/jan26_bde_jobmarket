@@ -97,14 +97,15 @@ CREATE TABLE IF NOT EXISTS gold.dim_geo (
     nom_departement  TEXT,
     code_region      TEXT,
     nom_region       TEXT,
+    nom_commune      TEXT,    
     latitude         NUMERIC(10, 6),
     longitude        NUMERIC(10, 6),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO gold.dim_geo (code_postal, code_departement, nom_departement, code_region, nom_region)
-VALUES ('UNKNOWN', 'UNKNOWN', 'Unknown', 'UNKNOWN', 'Unknown')
+INSERT INTO gold.dim_geo (code_postal, code_departement, nom_departement, code_region, nom_region, nom_commune)
+VALUES ('UNKNOWN', 'UNKNOWN', 'Unknown', 'UNKNOWN', 'Unknown', 'Unknown')
 ON CONFLICT (code_postal) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS gold.dim_code_rome (
