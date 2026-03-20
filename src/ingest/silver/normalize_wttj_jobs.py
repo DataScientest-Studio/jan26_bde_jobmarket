@@ -376,7 +376,7 @@ def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> Normalize
     """
     # Initialize storage if not provided
     # Source storage : bronze files to normalize
-    storage_bronze_merged = get_storage_from_env("bronze", "welcometothejungle")
+    storage_bronze = get_storage_from_env("bronze", "welcometothejungle")
     #  Destination storage : silver normalized files
     storage_silver_merged = get_storage_from_env("silver", "welcometothejungle")
 
@@ -384,7 +384,7 @@ def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> Normalize
     # List all objects in the storage
     prefix=""
     # Get Immediate prefixes (simulate folders) under bronze
-    all_dt_bronze = list(storage_bronze_merged.list_prefixes(prefix))
+    all_dt_bronze = list(storage_bronze.list_prefixes(prefix))
 
     dates_bronze = [v.replace('dt=', '').replace('/', '') for v in all_dt_bronze if 'dt=' in v]
     sorted_dates_bronze = sorted(dates_bronze)
