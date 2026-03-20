@@ -73,7 +73,21 @@ _CSV_KEY = "20230823-communes-departement-region.csv"
 
 
 def _build_geo_frame() -> pd.DataFrame:
-    """Build a deduplicated dim_geo DataFrame at code_postal grain."""
+    """Build a deduplicated dim_geo DataFrame at code_postal grain.
+
+    The INSEE CSV contains multiple communes per postal code (e.g. rural areas
+    where several villages share the same code_postal). 
+    Since dim_geo is keyed  code_postal, the raw data must be collapsed to one row per postal code
+    before loading — otherwise fact_offre_emploi JOINs would produce duplicate and inflate aggregation results.
+
+    Aggregation strategy (groupby code_postal):
+    - Label columns (nom_departement, nom_region, etc.): "first" — the first
+      commune encountered is used as the representative label for the postal
+      code. Arbitrary but consistent; label accuracy is sufficient for
+      dashboard-level grouping.
+    - Coordinates (latitude, longitude): "mean" — geographic centroid of all
+      communes sharing the postal code. 
+    """
     storage = get_storage_from_env(_INSEE_STORAGE_LAYER, _INSEE_STORAGE_SOURCE)
     raw = pd.read_csv(io.BytesIO(storage.read_bytes(_CSV_KEY)), dtype=str, sep=None, engine="python")
 
@@ -81,6 +95,7 @@ def _build_geo_frame() -> pd.DataFrame:
         "code_postal": "code_postal",
         "code_departement": "code_departement",
         "nom_departement": "nom_departement",
+        "nom_commune": "nom_commune",
         "code_region": "code_region",
         "nom_region": "nom_region",
         "latitude": "latitude",
@@ -95,6 +110,7 @@ def _build_geo_frame() -> pd.DataFrame:
     agg = df.groupby("code_postal", sort=False).agg(
         code_departement=("code_departement", "first"),
         nom_departement=("nom_departement", "first"),
+        nom_commune=("nom_commune", "first"),
         code_region=("code_region", "first"),
         nom_region=("nom_region", "first"),
         latitude=("latitude", "mean"),
@@ -139,6 +155,8 @@ def load_geo_dim() -> dict:
     dsn = os.getenv("JOBSTORE_DSN")
     if not dsn:
         raise ValueError("JOBSTORE_DSN is not set")
+    
+    print(f"dsn : {dsn}")
 
     df = _build_geo_frame()
     logger.info("Geo frame built: %d postal codes", len(df))
@@ -148,18 +166,20 @@ def load_geo_dim() -> dict:
         _bootstrap_schema(conn)
         with conn.cursor() as cur:
             for _, row in df.iterrows():
+                #print(f"Upserting {row['code_postal']} - {row['nom_commune']} ({row['nom_departement']}, {row['nom_region']})")
                 cur.execute(
                     """
                     INSERT INTO gold.dim_geo (
                         code_postal, code_departement, nom_departement,
-                        code_region, nom_region, latitude, longitude
+                        code_region, nom_region, nom_commune, latitude, longitude
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (code_postal) DO UPDATE SET
                         code_departement = EXCLUDED.code_departement,
                         nom_departement  = EXCLUDED.nom_departement,
                         code_region      = EXCLUDED.code_region,
                         nom_region       = EXCLUDED.nom_region,
+                        nom_commune      = EXCLUDED.nom_commune,
                         latitude         = EXCLUDED.latitude,
                         longitude        = EXCLUDED.longitude,
                         updated_at       = NOW()
@@ -170,6 +190,7 @@ def load_geo_dim() -> dict:
                         row["nom_departement"] or None,
                         row["code_region"] or None,
                         row["nom_region"] or None,
+                        row["nom_commune"] or None,
                         None if pd.isna(row["latitude"]) else float(row["latitude"]),
                         None if pd.isna(row["longitude"]) else float(row["longitude"]),
                     ),
