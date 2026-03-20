@@ -29,6 +29,10 @@ ENABLE_GRAFANA_LOGS = os.getenv("ENABLE_GRAFANA_LOGS", "false").lower() == "true
 JOBSTORE_DSN = os.getenv("JOBSTORE_DSN")
 STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "15"))
 
+# IP whitelist — liste de CIDRs séparés par virgule, vide = désactivé
+# Ex: API_ALLOWED_NETWORKS=172.16.0.0/12,10.8.0.0/24,127.0.0.1/32
+API_ALLOWED_NETWORKS = os.getenv("API_ALLOWED_NETWORKS", "")
+
 # Task status constants
 STATUS_RUNNING = "RUNNING"
 STATUS_SUCCESS = "SUCCESS"
@@ -46,6 +50,7 @@ import logging
 import json
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime, timezone
@@ -299,7 +304,37 @@ logger = setup_logging()
 structured_logger = logging.getLogger("structured")
 
 # ------------------------------------
-# Persistence PostgreSQL Logging — JobStore 
+# IP Whitelist middleware
+# ------------------------------------
+
+if API_ALLOWED_NETWORKS.strip():
+    import ipaddress
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    _allowed_networks = [
+        ipaddress.ip_network(cidr.strip(), strict=False)
+        for cidr in API_ALLOWED_NETWORKS.split(",")
+        if cidr.strip()
+    ]
+
+    class _IPWhitelistMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            try:
+                client_ip = ipaddress.ip_address(request.client.host)
+            except (ValueError, AttributeError):
+                return JSONResponse(status_code=403, content={"error": "Forbidden — invalid client IP"})
+            if not any(client_ip in net for net in _allowed_networks):
+                logger.warning(f"[IPWhitelist] Blocked {request.client.host} → {request.method} {request.url.path}")
+                return JSONResponse(status_code=403, content={"error": "Forbidden — IP not allowed"})
+            return await call_next(request)
+
+    app.add_middleware(_IPWhitelistMiddleware)
+    logger.info(f"[IPWhitelist] Enabled — réseaux autorisés : {API_ALLOWED_NETWORKS}")
+else:
+    logger.info("[IPWhitelist] Disabled — API_ALLOWED_NETWORKS non défini, accès non filtré")
+
+# ------------------------------------
+# Persistence PostgreSQL Logging — JobStore
 # ------------------------------------
 job_store = JobStore(JOBSTORE_DSN)
 
