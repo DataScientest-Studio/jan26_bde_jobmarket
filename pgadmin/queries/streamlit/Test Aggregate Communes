@@ -1,0 +1,11 @@
+        SELECT
+            g.nom_ville,
+            g.nom_departement,
+            g.nom_region,
+            COUNT(*) AS nb_offres
+        FROM gold.fact_offre_emploi f
+        JOIN gold.dim_geo g ON g.geo_key = f.geo_key
+        WHERE g.nom_ville IS NOT NULL
+        GROUP BY g.nom_ville, g.nom_departement, g.nom_region
+        ORDER BY nb_offres DESC
+        LIMIT 20
