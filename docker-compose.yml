@@ -68,7 +68,7 @@ services:
     networks:
       - jobmarket-net
     depends_on:
-      - jobmarket-minio-init
+      - jobmarket-minio-in
     ports:
       - "8888:8888"
     environment:
@@ -237,6 +237,25 @@ services:
       python3 -c 'import json,os; u=os.environ.get(\"AIRFLOW_ADMIN_USER\",\"admin\"); p=os.environ.get(\"AIRFLOW_ADMIN_PASSWORD\",\"admin\"); open(\"/opt/airflow/simple_auth_passwords.json\",\"w\").write(json.dumps({u:p})+\"\\n\")' &&
       airflow connections delete jobmarket_api 2>/dev/null; airflow connections add jobmarket_api --conn-type http --conn-host jobmarket-api --conn-port 8000 &&
       airflow standalone"
+
+  jobmarket-streamlit:
+    build:
+      context: ./visualization/streamlit
+      dockerfile: Dockerfile
+    container_name: jobmarket-streamlit
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
+    depends_on:
+      - jobmarket-postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: jobmarket-postgres
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./visualization/streamlit:/app
 
 volumes:
   grafana-data:
