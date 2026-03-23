@@ -145,7 +145,7 @@ def load_kpi_global(filters_key: str = ""):
         SELECT
             COUNT(*)                                            AS total_offres,
             COUNT(DISTINCT f.company_name)                      AS nb_entreprises,
-            ROUND(AVG(f.yearly_min + f.yearly_max) / 2.0, 0)   AS salaire_moyen,
+            ROUND(AVG(f.salary_min_computed + f.salary_max_computed) / 2.0, 0)   AS salaire_moyen,
             COUNT(*) FILTER (WHERE f.status = 'published')      AS offres_actives,
             COUNT(*) FILTER (WHERE f.published_at >= NOW() - INTERVAL '7 days')  AS offres_7j,
             COUNT(*) FILTER (WHERE f.published_at >= NOW() - INTERVAL '30 days') AS offres_30j,
@@ -222,7 +222,7 @@ def load_regions(filters_key: str = ""):
         SELECT
             g.nom_region, g.code_region,
             COUNT(*) AS nb_offres,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0) AS salaire_moyen
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0) AS salaire_moyen
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_geo g ON g.geo_key = f.geo_key
         {_contrat_join(f)} {_rome_join(f)}
@@ -240,7 +240,7 @@ def load_departements(filters_key: str = ""):
         SELECT
             g.nom_departement, g.code_departement, g.nom_region,
             COUNT(*) AS nb_offres,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0) AS salaire_moyen
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0) AS salaire_moyen
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_geo g ON g.geo_key = f.geo_key
         {_contrat_join(f)} {_rome_join(f)}
@@ -272,15 +272,15 @@ def load_salaires_distrib(filters_key: str = ""):
     f = st.session_state.get("active_filters", {})
     sql = f"""
         SELECT
-            f.yearly_min, f.yearly_max,
-            (f.yearly_min + f.yearly_max) / 2.0 AS salaire_moyen,
+            f.salary_min_computed, f.salary_max_computed,
+            (f.salary_min_computed + f.salary_max_computed) / 2.0 AS salaire_moyen,
             f.source
         FROM gold.fact_offre_emploi f
         {_geo_join(f)} {_contrat_join(f)} {_rome_join(f)}
-        WHERE f.yearly_min IS NOT NULL
-          AND f.yearly_max IS NOT NULL
-          AND f.yearly_min > 0
-          AND f.yearly_max < 200000
+        WHERE f.salary_min_computed IS NOT NULL
+          AND f.salary_max_computed IS NOT NULL
+          AND f.salary_min_computed > 0
+          AND f.salary_max_computed < 200000
           {_build_where(f)}
     """
     return _sql(sql, engine)
@@ -293,18 +293,18 @@ def load_salaires_par_contrat(filters_key: str = ""):
     sql = f"""
         SELECT
             c.contract_type,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0)::numeric, 0) AS salaire_moyen,
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0)::numeric, 0) AS salaire_moyen,
             ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP
-                  (ORDER BY (f.yearly_min + f.yearly_max) / 2.0)::numeric, 0) AS p25,
+                  (ORDER BY (f.salary_min_computed + f.salary_max_computed) / 2.0)::numeric, 0) AS p25,
             ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP
-                  (ORDER BY (f.yearly_min + f.yearly_max) / 2.0)::numeric, 0) AS p75,
+                  (ORDER BY (f.salary_min_computed + f.salary_max_computed) / 2.0)::numeric, 0) AS p75,
             COUNT(*) AS nb
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_type_contrat c ON c.contract_key = f.contract_key
         {_geo_join(f)} {_rome_join(f)}
-        WHERE f.yearly_min IS NOT NULL
-          AND f.yearly_max IS NOT NULL
-          AND f.yearly_min > 0
+        WHERE f.salary_min_computed IS NOT NULL
+          AND f.salary_max_computed IS NOT NULL
+          AND f.salary_min_computed > 0
           AND c.contract_type != 'UNKNOWN'
           {_build_where(f)}
         GROUP BY c.contract_type
@@ -321,14 +321,14 @@ def load_salaires_par_rome(filters_key: str = ""):
     sql = f"""
         SELECT
             r.rome_label, r.rome_code,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0) AS salaire_moyen,
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0) AS salaire_moyen,
             COUNT(*) AS nb_offres
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_code_rome r ON r.rome_key = f.rome_key
         {_geo_join(f)} {_contrat_join(f)}
-        WHERE f.yearly_min IS NOT NULL
-          AND f.yearly_max IS NOT NULL
-          AND f.yearly_min > 0
+        WHERE f.salary_min_computed IS NOT NULL
+          AND f.salary_max_computed IS NOT NULL
+          AND f.salary_min_computed > 0
           AND r.rome_code != 'UNKNOWN'
           {_build_where(f)}
         GROUP BY r.rome_label, r.rome_code
@@ -345,16 +345,16 @@ def load_salaires_par_region(filters_key: str = ""):
     sql = f"""
         SELECT
             g.nom_region,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0) AS salaire_moyen,
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0) AS salaire_moyen,
             ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP
-                  (ORDER BY (f.yearly_min + f.yearly_max) / 2.0)::numeric, 0) AS mediane,
+                  (ORDER BY (f.salary_min_computed + f.salary_max_computed) / 2.0)::numeric, 0) AS mediane,
             COUNT(*) AS nb_offres
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_geo g ON g.geo_key = f.geo_key
         {_contrat_join(f)} {_rome_join(f)}
-        WHERE f.yearly_min IS NOT NULL
-          AND f.yearly_max IS NOT NULL
-          AND f.yearly_min > 0
+        WHERE f.salary_min_computed IS NOT NULL
+          AND f.salary_max_computed IS NOT NULL
+          AND f.salary_min_computed > 0
           AND g.nom_region IS NOT NULL
           AND g.code_region != 'UNKNOWN'
           {_build_where(f)}
@@ -376,9 +376,9 @@ def load_carte_regions():
             g.code_region                                          AS code,
             COUNT(*)                                               AS nb_offres,
             COUNT(DISTINCT f.company_name)                         AS nb_entreprises,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0)    AS salaire_moyen,
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0)    AS salaire_moyen,
             ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP
-                  (ORDER BY (f.yearly_min + f.yearly_max) / 2.0)::numeric, 0) AS salaire_mediane,
+                  (ORDER BY (f.salary_min_computed + f.salary_max_computed) / 2.0)::numeric, 0) AS salaire_mediane,
             COUNT(*) FILTER (WHERE f.published_at >= NOW() - INTERVAL '30 days') AS offres_30j
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_geo g ON g.geo_key = f.geo_key
@@ -399,9 +399,9 @@ def load_carte_departements():
             g.nom_region,
             COUNT(*)                                               AS nb_offres,
             COUNT(DISTINCT f.company_name)                         AS nb_entreprises,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0)    AS salaire_moyen,
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0)    AS salaire_moyen,
             ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP
-                  (ORDER BY (f.yearly_min + f.yearly_max) / 2.0)::numeric, 0) AS salaire_mediane,
+                  (ORDER BY (f.salary_min_computed + f.salary_max_computed) / 2.0)::numeric, 0) AS salaire_mediane,
             COUNT(*) FILTER (WHERE f.published_at >= NOW() - INTERVAL '30 days') AS offres_30j
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_geo g ON g.geo_key = f.geo_key
@@ -475,7 +475,7 @@ def load_naf_par_region(region: str = "", top_n: int = 20, filters_key: str = ""
             n.naf_code,
             n.naf_label,
             COUNT(*)                                               AS nb_offres,
-            ROUND(AVG((f.yearly_min + f.yearly_max) / 2.0), 0)   AS salaire_moyen
+            ROUND(AVG((f.salary_min_computed + f.salary_max_computed) / 2.0), 0)   AS salaire_moyen
         FROM gold.fact_offre_emploi f
         JOIN gold.dim_naf n       ON n.naf_key  = f.naf_key
         JOIN gold.dim_geo g       ON g.geo_key  = f.geo_key
