@@ -9,5 +9,6 @@ CORAL    = "#c96a4a"
 PURPLE   = "#7a6aad"
 
 # ── Base de données ───────────────────────────────────────────────────────────
-DB_URL = "postgresql://jobuser:jobpass@localhost:5432/jobdb"
+# DSN de connexion à la base de données PostgreSQL (via SQLAlchemy)
+# passé par le docker-compose.yml 
 DB_TTL = 300  # secondes de cache
