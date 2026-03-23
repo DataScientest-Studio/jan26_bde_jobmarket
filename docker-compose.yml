@@ -240,7 +240,7 @@ services:
 
   jobmarket-streamlit:
     build:
-      context: ./visualization/streamlit
+      context: ./streamlit
       dockerfile: Dockerfile
     container_name: jobmarket-streamlit
     restart: unless-stopped
@@ -256,8 +256,9 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./visualization/streamlit:/app
+      - ./streamlit:/app
       - ./src:/app/src
+
 
 volumes:
   grafana-data:
