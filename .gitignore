@@ -108,4 +108,3 @@ logs/api/structured.jsonl
 
 /docs/
 /wttj_ingest2/
-streamlit/*__pycache__/*
