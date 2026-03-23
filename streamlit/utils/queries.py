@@ -6,15 +6,8 @@ le cache @st.cache_data, et lit les filtres actifs via st.session_state.
 import pandas as pd
 import streamlit as st
 from sqlalchemy import text
-from utils.db import get_engine
+from utils.db import get_engine, _sql
 from config import DB_TTL
-
-
-def _sql(query: str, engine) -> pd.DataFrame:
-    """Exécute une requête SQL brute via SQLAlchemy 2.x (text() obligatoire)."""
-    with engine.connect() as conn:
-        return pd.read_sql(text(query), conn)
-
 
 # ── Construction de la clause WHERE dynamique ─────────────────────────────────
 
