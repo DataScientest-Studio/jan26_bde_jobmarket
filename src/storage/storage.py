@@ -245,6 +245,9 @@ class LocalStorage(Storage):
                             continue
         return gen()
 
+    def get_object_jsonl(self, key: str) -> Iterable[Dict[str, Any]]:
+        return self.read_jsonl(key)
+
     def write_parquet(self, key: str, df) -> None:
         """Write a parquet file at key."""
         path = self._resolve(key)
