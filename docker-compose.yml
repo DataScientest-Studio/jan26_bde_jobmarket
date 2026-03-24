@@ -186,9 +186,9 @@ services:
       - ./pgadmin/queries:/var/lib/pgadmin/storage/willramarques_gmail.com
 
   jobmarket-airflow:
-    cpus: "1.0"
-    mem_limit: 2g
-    memswap_limit: 2g
+    cpus: "4.0"
+    mem_limit: 12g
+    memswap_limit: 16g
     build:
       context: .
       dockerfile: Dockerfile.airflow
@@ -209,9 +209,9 @@ services:
       # Format attendu : "username:ROLE" — ADMIN est le rôle Airflow (pas le mot de passe)
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_ADMIN_USER}:ADMIN"
       PYTHONPATH: /opt/airflow
-      # Lecture des datasets Gold via fichiers locaux montés — pas de dépendance réseau MinIO
-      STORAGE_BACKEND: local
-      DATA_ROOT: data/jobmarket
+      STORAGE_BACKEND: s3
+      # Override .env : localhost non résolvable depuis le container — réseau Docker interne
+      S3_ENDPOINT_URL: http://jobmarket-minio:9000
     ports:
       - "8080:8080"
     volumes:
