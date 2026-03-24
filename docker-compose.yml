@@ -208,10 +208,14 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@jobmarket-postgres:5432/airflow
       # Format attendu : "username:ROLE" — ADMIN est le rôle Airflow (pas le mot de passe)
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_ADMIN_USER}:ADMIN"
+      PYTHONPATH: /opt/airflow
+      # Override .env : localhost non résolvable depuis le container — réseau Docker interne
+      S3_ENDPOINT_URL: http://jobmarket-minio:9000
     ports:
       - "8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
       - airflow-logs:/opt/airflow/logs
     # Séquence de démarrage :
     # 1. db migrate      — initialise le schéma de métadonnées Airflow
