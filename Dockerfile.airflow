@@ -9,6 +9,24 @@ RUN AIRFLOW_VERSION=$(python -c "import airflow; print(airflow.__version__)") &&
         --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt" \
         psycopg2-binary asyncpg apache-airflow-providers-http
 
-# Dépendances du projet
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# Dépendances ML du projet — requirements.txt complet exclu car fastapi du projet
+# entre en conflit avec la version interne utilisée par Airflow (cadwyn).
+RUN pip install --no-cache-dir \
+    joblib \
+    numpy \
+    pandas \
+    pyarrow \
+    scikit-learn \
+    scipy \
+    python-dotenv \
+    load-dotenv \
+    boto3 \
+    s3fs \
+    fsspec \
+    tqdm \
+    pyparsing \
+    beautifulsoup4 \
+    lxml \
+    matplotlib \
+    termcolor \
+    tzdata
