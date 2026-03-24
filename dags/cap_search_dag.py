@@ -20,8 +20,8 @@ DAG non schedulé (schedule=None) — expérimental uniquement.
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.models.param import Param
-from airflow.operators.python import PythonOperator
+from airflow.sdk import Param
+from airflow.providers.standard.operators.python import PythonOperator
 
 # ---------------------------------------------------------------------------
 # Constantes
@@ -37,7 +37,9 @@ DEFAULT_CAP_VALUES = [500, 1000, 1628, 2500, 0]
 
 def _train_cap(cap: int, **context) -> dict:
     """Entraîne un modèle avec le cap donné et pousse les métriques en XCom."""
-    # Import ici pour que le DAG reste parseable sans les dépendances ML
+    import os, sys
+    # Le DAG est dans /opt/airflow/dags/ — la racine du projet est un niveau au-dessus.
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from src.config.env import load_project_env
     load_project_env()
     from src.models.train_model import train
