@@ -15,13 +15,21 @@ Déclenchement :
     - Paramètres configurables au déclenchement : dt, caps
 
 DAG non schedulé (schedule=None) — expérimental uniquement.
-"""
 
-from datetime import datetime, timedelta
+"""
+import os
+import sys
+
+# Ajoute la racine du projet (/opt/airflow) au PYTHONPATH pour que `src` soit importable.
+# Nécessaire car Airflow 3.x exécute les tâches dans des subprocesses qui n'héritent
+# pas du PYTHONPATH défini dans docker-compose.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from airflow import DAG
 from airflow.sdk import Param
 from airflow.providers.standard.operators.python import PythonOperator
+
+from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------------
 # Constantes
