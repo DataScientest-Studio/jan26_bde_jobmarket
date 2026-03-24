@@ -139,7 +139,7 @@ def _save_and_print_results(**context) -> None:
 # ---------------------------------------------------------------------------
 
 with DAG(
-    dag_id="cap_search",
+    dag_id="jobmarket_cap_search",
     description="Grid search expérimental sur MAX_CLASS_COUNT — non schedulé",
     schedule=None,                        # déclenchement manuel uniquement
     start_date=datetime(2026, 1, 1),
