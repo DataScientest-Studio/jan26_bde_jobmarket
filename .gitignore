@@ -75,10 +75,6 @@ target/
 # Jupyter NB Checkpoints
 .ipynb_checkpoints/
 
-# exclude data from source control by default
-/data/
-/minio_data/
-
 # Mac OS-specific storage files
 .DS_Store
 
@@ -94,8 +90,8 @@ environments/*.bru
 exploration/api/francetravail/R/*
 ollama-data/
 
-# Local data storage for MinIO
-data/
+# Local data storage for MinIO (racine uniquement) 
+/data/
 
 # pgAdmin configuration with passwords
 pgadmin/servers.json
