@@ -52,46 +52,70 @@ Pipeline overview :
 
     Model choice: LinearSVC (linear SVM) versus Logistic Regression
     ----------------------
-    The chosen model is LinearSVC, a linear Support Vector Machine trained 
-    to separate classes with hyperplanes in the high-dimensional TF-IDF space. 
-    
-    Text classification with TF-IDF often becomes close to linearly separable 
-    because the representation is high-dimensional and sparse, making a linear decision boundary effective. 
-    
-    LinearSVC is typically efficient and robust on large sparse matrices and multi-class setups, 
-    and it avoids the heavier computational costs that can appear with Logistic Regression 
-    when the number of classes and features is large (solver sensitivity, higher memory/CPU requirements). 
-    
+    The chosen model is LinearSVC, a linear Support Vector Machine trained
+    to separate classes with hyperplanes in the high-dimensional TF-IDF space.
+
+    Text classification with TF-IDF often becomes close to linearly separable
+    because the representation is high-dimensional and sparse, making a linear decision boundary effective.
+
+    LinearSVC is typically efficient and robust on large sparse matrices and multi-class setups,
+    and it avoids the heavier computational costs that can appear with Logistic Regression
+    when the number of classes and features is large (solver sensitivity, higher memory/CPU requirements).
+
     Top-k predictions can be produced by ranking the decision scores returned by the model's decision function.
+
+    Class imbalance and class_weight="balanced"
+    ----------------------
+    Job offer data is naturally skewed: common occupations (retail, logistics, IT) generate
+    10-50x more offers than specialised ones. Without correction, LinearSVC optimises the
+    global margin and over-represents majority classes — minority classes end up with low
+    recall and a degraded macro F1, even if overall accuracy looks acceptable.
+
+    class_weight="balanced" corrects this by reweighting each class inversely proportional
+    to its frequency in the training set:
+
+        weight_i = n_samples / (n_classes * count_i)
+
+    A class with 80 examples gets a much higher weight than one with 8 000, forcing the
+    model to treat errors on rare classes as more costly. This improves macro F1 without
+    modifying the dataset or losing any training data.
+
+    Configurable via SVC_CLASS_WEIGHT env var ("balanced" by default, "none" to disable).
+    See docs/ML.md for a detailed explanation of metrics and class imbalance strategies.
 
     Why not a Transformer (BERT) model
     ----------------------
-    Transformer-based approaches can capture deeper semantic relationships, 
-    but they come with higher operational cost: GPU requirements (or much slower CPU inference), 
-    increased memory usage, longer training times, and additional complexity for fine-tuning and deployment. 
-    
-    In a large-scale, structured job-offer domain where discriminative keywords and phrases are strong signals, 
-    TF-IDF plus a linear classifier is a strong and lightweight baseline 
-    that is easier to train, version, and deploy in a Dockerized environment. 
-    
-    A Transformer becomes more justified when semantic nuance is critical, labeled data is limited, 
+    Transformer-based approaches can capture deeper semantic relationships,
+    but they come with higher operational cost: GPU requirements (or much slower CPU inference),
+    increased memory usage, longer training times, and additional complexity for fine-tuning and deployment.
+
+    In a large-scale, structured job-offer domain where discriminative keywords and phrases are strong signals,
+    TF-IDF plus a linear classifier is a strong and lightweight baseline
+    that is easier to train, version, and deploy in a Dockerized environment.
+
+    A Transformer becomes more justified when semantic nuance is critical, labeled data is limited,
     and the infrastructure can support deep learning workflows.
 
     Evaluation metrics and their usage
     ----------------------
-    Multiple metrics are used due to the large number of classes and potential class imbalance:
+    Multiple metrics are used due to the large number of classes and potential class imbalance.
+    See docs/ML.md for full definitions.
 
-        - Accuracy measures overall correctness (percentage of exact matches) 
-        but can be misleading if classes are imbalanced.
+        - Accuracy: overall correctness (% exact matches). Misleading on imbalanced data
+          because majority classes dominate the score.
 
-        - Macro F1-score computes F1 per class and averages equally across classes, 
-        providing a fairer view of performance on minority classes. 
-        
-        F1 per class explains which ROME codes are well-predicted and which are not.
-        So it is crucial for diagnosing model performance across the diverse set of ROME codes.
-        
-        - Top-k accuracy (e.g., top-3, top-5) measures whether the true ROME code 
-        appears among the k highest-scoring predictions. 
+        - Macro F1: F1 computed per class, then averaged equally across all classes.
+          Each of the ~490 ROME codes counts for 1/490 regardless of frequency.
+          This is the primary indicator — it reveals whether rare occupations are
+          correctly covered, not just the common ones.
+
+        - F1 per class = harmonic mean of precision and recall for that class.
+          Precision: "when I predict this class, am I right?"
+          Recall:    "among all real cases of this class, how many did I find?"
+
+        - Top-k accuracy (e.g., top-3, top-5): whether the true ROME code appears
+          among the k highest-scoring predictions. Useful for UX where the user
+          can select from a short suggested list.
 
     Hyperparameter Tuning Strategies
     ----------------------
@@ -166,8 +190,10 @@ Pipeline overview :
 
 
 
+import argparse
 import io
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -192,15 +218,20 @@ load_project_env()  # safe à rappeler (idempotent)
 
 from src.storage.storage import LocalStorage, S3Storage, get_storage_from_env
 
+logger = logging.getLogger(__name__)
+
 # -----------------------------
 # CONFIG (env overridable)
 # -----------------------------
-DATASET_KEY = os.getenv("DATASET_KEY", "datasets/rome_dataset.parquet")
+# Dataset key template — dt is resolved at runtime (auto or explicit --dt)
+DATASET_KEY_TEMPLATE = "datasets/{dt}/rome_dataset.parquet"
 
 MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
 MODEL_PATH_PREFIX = os.getenv("MODEL_PATH_PREFIX", "models")  # Relative path within gold layer
+# Base version label — dt is appended at runtime to form the effective version:
+#   effective_version = f"{MODEL_VERSION}_{dt}"  e.g. "v2_2026-02-13" or "cap_p90_2026-02-13"
+# MODEL_BASE_KEY is constructed inside train() once dt is known.
 MODEL_VERSION = os.getenv("MODEL_VERSION", "v1")
-MODEL_BASE_KEY = f"{MODEL_PATH_PREFIX}/{MODEL_NAME}/versions/{MODEL_VERSION}"
 
 # Split ratios
 TEST_SIZE = float(os.getenv("TEST_SIZE", "0.10"))
@@ -215,8 +246,19 @@ TFIDF_MAX_DF = float(os.getenv("TFIDF_MAX_DF", "0.90"))
 TFIDF_SUBLINEAR_TF = os.getenv("TFIDF_SUBLINEAR_TF", "true").lower() == "true"
 TFIDF_MAX_FEATURES = os.getenv("TFIDF_MAX_FEATURES")  # None or int
 
+# Class capping — applied at training time, not in the dataset file.
+# Undersamples majority classes to at most MAX_CLASS_COUNT examples before training.
+# The dataset parquet files remain untouched; the cap is a training hyperparameter.
+# Set to 0 or empty to disable capping.
+# Recommended: p90 of the class frequency distribution (see docs/ML.md and analyze_dataset.py).
+MAX_CLASS_COUNT = int(os.getenv("MAX_CLASS_COUNT", "0"))
+
 # LinearSVC params
 SVC_C = float(os.getenv("SVC_C", "1.0"))
+# class_weight="balanced" reweights each class inversely proportional to its frequency.
+# This corrects the bias toward majority classes without modifying the dataset.
+# Set SVC_CLASS_WEIGHT=none to disable.
+SVC_CLASS_WEIGHT = os.getenv("SVC_CLASS_WEIGHT", "balanced") or None
 
 # Tuning strategy: "none", "manual", "grid", "random"
 TUNING_STRATEGY = os.getenv("TUNING_STRATEGY", "none")
@@ -316,7 +358,7 @@ def train_without_tuning(X_train, y_train, X_val, y_val):
     X_train_vec = vectorizer.fit_transform(X_train)
     X_val_vec = vectorizer.transform(X_val)
     
-    model = LinearSVC(C=SVC_C, random_state=RANDOM_STATE)
+    model = LinearSVC(C=SVC_C, class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE)
     print("🏋️ Training LinearSVC...")
     model.fit(X_train_vec, y_train)
     
@@ -385,7 +427,7 @@ def train_with_manual_tuning(X_train, y_train, X_val, y_val):
                 X_val_vec = vectorizer.transform(X_val)
                 
                 # Train model
-                model = LinearSVC(C=C, random_state=RANDOM_STATE)
+                model = LinearSVC(C=C, class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE)
                 model.fit(X_train_vec, y_train)
                 
                 # Evaluate on validation
@@ -444,7 +486,7 @@ def train_with_grid_search(X_train, y_train, X_val, y_val):
     # Create pipeline
     pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(dtype=np.float32)),
-        ('svc', LinearSVC(random_state=RANDOM_STATE))
+        ('svc', LinearSVC(class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE))
     ])
     
     # Define parameter grid using env variables
@@ -526,7 +568,7 @@ def train_with_random_search(X_train, y_train, X_val, y_val):
     # Use a pipeline
     pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(dtype=np.float32)),
-        ('svc', LinearSVC(random_state=RANDOM_STATE))
+        ('svc', LinearSVC(class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE))
     ])
     
     # Define parameter distributions
@@ -619,65 +661,125 @@ def get_tuning_strategy(strategy_name: str):
 
 
 # -----------------------------
+# Dataset resolution
+# -----------------------------
+
+def resolve_dataset_dt(dt_arg: str | None) -> str:
+    """Return the dt to load: explicit value or latest available in Gold datasets.
+
+    Gold datasets are stored as datasets/{YYYY-MM-DD}/rome_dataset.parquet.
+    Partitions are plain date folders (not dt= prefixed), so list_prefixes("datasets/")
+    returns entries like ["2026-02-13/", "2026-03-07/"]. max() gives the latest.
+    """
+    if dt_arg and dt_arg not in ("", "latest"):
+        return dt_arg
+    prefixes = storage_gold.list_prefixes("datasets/")
+    dts = [p.strip("/") for p in prefixes if p.strip("/")]
+    if not dts:
+        raise RuntimeError(
+            "No dataset found in Gold. "
+            "Run make_dataset or make_dataset_from_silver first."
+        )
+    latest = max(dts)
+    logger.info("Auto mode — latest Gold dataset dt: %s", latest)
+    return latest
+
+
+# -----------------------------
 # Training
 # -----------------------------
-def main():
+
+def train(dt: str | None = None, update_latest: bool = True, max_class_count: int | None = None) -> dict:
+    """
+    Run the full training pipeline for the given dataset partition.
+
+    Loads the Gold dataset at datasets/{dt}/rome_dataset.parquet, splits it into
+    train/val/test, applies the configured tuning strategy, evaluates the model,
+    and saves artifacts (vectorizer, model, label encoder, metrics, config) to Gold.
+
+    Args:
+        dt: Dataset partition date (YYYY-MM-DD). None or "latest" triggers auto mode
+            (picks the most recent partition in Gold datasets/).
+        update_latest: If True (default), writes LATEST.json to point to this version.
+            Set to False for experiment runs (cap tuning, ablations) to avoid
+            overwriting the production pointer.
+
+    Returns:
+        Dict with dt, dataset_key, rows, classes, metrics, model_base_key,
+        effective_version, tuning_strategy, training_duration_seconds.
+    """
+    dt = resolve_dataset_dt(dt)
+    dataset_key = DATASET_KEY_TEMPLATE.format(dt=dt)
+
+    # max_class_count: CLI arg takes precedence over env var (MAX_CLASS_COUNT)
+    effective_cap = max_class_count if max_class_count is not None else MAX_CLASS_COUNT
+
+    # Version includes dt and cap so each (MODEL_VERSION, cap, dt) triplet has a unique storage path.
+    # Examples: "v1_cap1561_2026-02-13", "v1_nocap_2026-02-13"
+    cap_tag = f"cap{effective_cap}" if effective_cap > 0 else "nocap"
+    effective_version = f"{MODEL_VERSION}_{cap_tag}_{dt}"
+    model_base_key = f"{MODEL_PATH_PREFIX}/{MODEL_NAME}/versions/{effective_version}"
+
     run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    print(f" train.py — start (backend={os.getenv('STORAGE_BACKEND', 'local')})")
-    print(f"📥 Reading dataset: {DATASET_KEY}")
+    logger.info("train — start (backend=%s)", os.getenv("STORAGE_BACKEND", "local"))
+    logger.info("Reading dataset: %s", dataset_key)
 
-    df = read_parquet(DATASET_KEY)
+    df = read_parquet(dataset_key)
 
-    required_cols = {"text", "romeCode"}
+    required_cols = {"text", "rome_code"}
     if not required_cols.issubset(df.columns):
         raise RuntimeError(f"Dataset must contain columns {required_cols}, found: {list(df.columns)}")
 
     # Drop rows with missing text or labels, and reset index for clean slicing later.
-    df = df.dropna(subset=["text", "romeCode"]).reset_index(drop=True)
-    print(f"📊 Dataset rows: {len(df)} | classes: {df['romeCode'].nunique()}")
+    df = df.dropna(subset=["text", "rome_code"]).reset_index(drop=True)
+    print(f"📊 Dataset rows: {len(df)} | classes: {df['rome_code'].nunique()}")
+
+    # Class capping — undersample majority classes to at most MAX_CLASS_COUNT examples.
+    # Applied here so the dataset parquet files remain untouched.
+    if effective_cap > 0:
+        # sample(frac=1) shuffles the dataset first so head(n) draws a random
+        # subset rather than always the first N rows of each class.
+        # groupby().head(n) is used instead of groupby().apply(lambda g: g.sample(...))
+        # because apply() can silently drop or rename columns in pandas 2.x.
+        df = (
+            df.sample(frac=1, random_state=RANDOM_STATE)
+            .groupby("rome_code", sort=False)
+            .head(effective_cap)
+            .reset_index(drop=True)
+        )
+        print(f"✂️ After capping (max {effective_cap}/class): {len(df)} rows | {df['rome_code'].nunique()} classes")
 
     # X is the text content (features)
     X = df["text"].astype(str).values
     # y_raw is the original ROME code labels (targets) before encoding.
-    y_raw = df["romeCode"].astype(str).values
+    y_raw = df["rome_code"].astype(str).values
 
     # Encode labels with LabelEncoder. This converts string labels to integers
-    #  (0..n_classes-1) to avoid colinearity issues and ensure compatibility with scikit-learn classifiers.
+    # (0..n_classes-1) to avoid colinearity issues and ensure compatibility with scikit-learn classifiers.
     le = LabelEncoder()
-    # y will be the encoded integer labels corresponding to the original ROME codes in y_raw.
     y = le.fit_transform(y_raw)
     n_classes = len(le.classes_)
     print(f"🏷️ Classes encoded: {n_classes}")
 
-    # Convert X and y to NumPy arrays to ensure compatibility with train_test_split.
-    # scikit-learn uses NumPy-based indexing internally, and Python lists
-    # do not support indexing with NumPy arrays, which can raise a TypeError.
     X = np.asarray(X, dtype=object)
     y = np.asarray(y)
 
-    # Split: train set +validation set / test set
-    # Stratify by y to maintain class distribution across splits. 
-    # Use random_state for reproducibility.
+    # Split: train+val / test — stratify to maintain class distribution.
     X_trainval, X_test, y_trainval, y_test = train_test_split(
-        X, 
-        y, 
-        test_size=TEST_SIZE, 
-        random_state=RANDOM_STATE, 
-        stratify=y
+        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
     )
 
-    # Then split train_val in to : train set  + validation set 
-    # validation set is used for tuning hyperparameters model, while test set is only for final evaluation.
+    # Split train+val into train / val.
+    # Validation set is used for hyperparameter tuning; test set is held out for final evaluation only.
     val_ratio_on_trainval = VAL_SIZE / (1.0 - TEST_SIZE)
     X_train, X_val, y_train, y_val = train_test_split(
-        X_trainval, 
-        y_trainval, 
-        test_size=val_ratio_on_trainval, 
-        random_state=RANDOM_STATE, 
-        stratify=y_trainval
+        X_trainval, y_trainval,
+        test_size=val_ratio_on_trainval,
+        random_state=RANDOM_STATE,
+        stratify=y_trainval,
     )
 
-    print(f"✂️ Split sizes: train set ={len(X_train)} | validation set ={len(X_val)} | test set ={len(X_test)}")
+    print(f"✂️ Split sizes: train={len(X_train)} | val={len(X_val)} | test={len(X_test)}")
 
     # ==============================
     # HYPERPARAMETER TUNING
@@ -685,64 +787,54 @@ def main():
     print(f"\n{'='*60}")
     print(f"TUNING STRATEGY: {TUNING_STRATEGY.upper()}")
     print(f"{'='*60}\n")
-    
-    # Select and execute tuning strategy
+
     training_start_time = time.time()
     tuning_function = get_tuning_strategy(TUNING_STRATEGY)
     vectorizer, model, tuning_config = tuning_function(X_train, y_train, X_val, y_val)
-    training_end_time = time.time()
-    training_duration_seconds = training_end_time - training_start_time
-    
+    training_duration_seconds = time.time() - training_start_time
+
     # ==============================
     # FINAL EVALUATION
     # ==============================
     print(f"\n{'='*60}")
     print("FINAL EVALUATION ON ALL SPLITS")
     print(f"{'='*60}\n")
-    
-    # Transform all splits with the final vectorizer
+
     X_train_vec = vectorizer.transform(X_train)
     X_val_vec = vectorizer.transform(X_val)
     X_test_vec = vectorizer.transform(X_test)
 
-    # Evaluate on all splits
     def eval_split(name: str, Xv, yv) -> Dict[str, float]:
         y_pred = model.predict(Xv)
         acc = accuracy_score(yv, y_pred)
         f1m = f1_score(yv, y_pred, average="macro")
-
-        # decision_function for top-k
         scores = model.decision_function(Xv)
-
-        # In multiclass, shape : (n_samples, n_classes). 
-        # In binary classification : (n_samples,)
         if scores.ndim == 1:
             scores = np.vstack([-scores, scores]).T
-
         top3 = top_k_accuracy_from_scores(scores, yv, k=min(3, scores.shape[1]))
         top5 = top_k_accuracy_from_scores(scores, yv, k=min(5, scores.shape[1]))
-
         print(f"📈 {name}: acc={acc:.4f} | f1_macro={f1m:.4f} | top3={top3:.4f} | top5={top5:.4f}")
         return {"accuracy": float(acc), "f1_macro": float(f1m), "top3": float(top3), "top5": float(top5)}
 
-    # Calculate metrics on train, validation, and test sets.
     metrics = {
         "train": eval_split("train", X_train_vec, y_train),
-        "val": eval_split("val", X_val_vec, y_val),
-        "test": eval_split("test", X_test_vec, y_test),
+        "val":   eval_split("val",   X_val_vec,   y_val),
+        "test":  eval_split("test",  X_test_vec,  y_test),
     }
 
     # ==============================
     # SAVE ARTIFACTS
     # ==============================
-    print(f"\n💾 Saving artifacts to: {MODEL_BASE_KEY}/")
-    write_joblib(f"{MODEL_BASE_KEY}/vectorizer.joblib", vectorizer)
-    write_joblib(f"{MODEL_BASE_KEY}/model.joblib", model)
-    write_joblib(f"{MODEL_BASE_KEY}/label_encoder.joblib", le)
+    print(f"\n💾 Saving artifacts to: {model_base_key}/")
+    write_joblib(f"{model_base_key}/vectorizer.joblib", vectorizer)
+    write_joblib(f"{model_base_key}/model.joblib", model)
+    write_joblib(f"{model_base_key}/label_encoder.joblib", le)
 
-    # Merge tuning config with base config
     config = {
-        "dataset_key": DATASET_KEY,
+        "dataset_key": dataset_key,
+        "dataset_dt": dt,
+        "effective_version": effective_version,
+        "capping": {"max_class_count": effective_cap if effective_cap > 0 else None},
         "tuning": tuning_config,
         "split": {
             "test_size": TEST_SIZE,
@@ -754,7 +846,7 @@ def main():
 
     train_meta = {
         "run_ts_utc": run_ts,
-        "backend": os.getenv('STORAGE_BACKEND', 'local'),
+        "backend": os.getenv("STORAGE_BACKEND", "local"),
         "rows": int(len(df)),
         "classes": int(n_classes),
         "tuning_strategy": TUNING_STRATEGY,
@@ -762,22 +854,72 @@ def main():
         "training_duration_minutes": float(training_duration_seconds / 60),
     }
 
-    write_json(f"{MODEL_BASE_KEY}/metrics.json", metrics)
-    write_json(f"{MODEL_BASE_KEY}/config.json", config)
-    write_json(f"{MODEL_BASE_KEY}/train_meta.json", train_meta)
+    write_json(f"{model_base_key}/metrics.json", metrics)
+    write_json(f"{model_base_key}/config.json", config)
+    write_json(f"{model_base_key}/train_meta.json", train_meta)
 
-    # Optional: also write a "latest" pointer (simple file) – works for local & S3
-    # This avoids symlinks (Windows/S3).
-    write_json(f"{MODEL_PATH_PREFIX}/{MODEL_NAME}/LATEST.json", {"latest": MODEL_VERSION, "updated_utc": run_ts})
+    if update_latest:
+        write_json(
+            f"{MODEL_PATH_PREFIX}/{MODEL_NAME}/LATEST.json",
+            {"latest": effective_version, "updated_utc": run_ts},
+        )
+        logger.info("LATEST.json updated → %s", effective_version)
+    else:
+        logger.info("LATEST.json not updated (--no-update-latest). Version: %s", effective_version)
 
     print(f"\n{'='*60}")
     print("✅ TRAINING COMPLETED SUCCESSFULLY")
     print(f"{'='*60}")
-    print(f"Strategy: {TUNING_STRATEGY}")
+    print(f"Version:       {effective_version}")
+    print(f"Strategy:      {TUNING_STRATEGY}")
     print(f"Test Accuracy: {metrics['test']['accuracy']:.4f}")
     print(f"Test F1-Macro: {metrics['test']['f1_macro']:.4f}")
-    print(f"Artifacts saved to: {MODEL_BASE_KEY}/")
+    print(f"Artifacts:     {model_base_key}/")
+    print(f"LATEST.json:   {'updated' if update_latest else 'NOT updated (experiment mode)'}")
     print(f"{'='*60}\n")
+
+    return {
+        "dt": dt,
+        "dataset_key": dataset_key,
+        "effective_version": effective_version,
+        "rows": int(len(df)),
+        "classes": int(n_classes),
+        "metrics": metrics,
+        "model_base_key": model_base_key,
+        "tuning_strategy": TUNING_STRATEGY,
+        "training_duration_seconds": float(training_duration_seconds),
+        "latest_updated": update_latest,
+    }
+
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
+    parser = argparse.ArgumentParser(
+        description="Train ROME classifier from Gold dataset."
+    )
+    parser.add_argument(
+        "--dt",
+        default=None,
+        help="Dataset partition date (YYYY-MM-DD). Omit for auto (latest Gold dataset dt).",
+    )
+    parser.add_argument(
+        "--max-class-count",
+        type=int,
+        default=None,
+        help="Cap majority classes to at most N examples before training. Overrides MAX_CLASS_COUNT env var. 0 = no cap.",
+    )
+    parser.add_argument(
+        "--no-update-latest",
+        action="store_true",
+        default=False,
+        help="Do not update LATEST.json after training. Use for experiment runs (cap tuning, ablations).",
+    )
+    args = parser.parse_args()
+    result = train(args.dt, update_latest=not args.no_update_latest, max_class_count=args.max_class_count)
+    logger.info("Training completed: %s", result)
 
 
 if __name__ == "__main__":
