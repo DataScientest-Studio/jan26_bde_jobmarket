@@ -40,7 +40,17 @@ from datetime import datetime, timedelta
 
 # Ordre des caps : du plus restrictif au plus permissif, nocap en dernier
 # pour avoir les résultats intermédiaires rapidement.
-DEFAULT_CAP_VALUES = [500, 1000, 1628, 2500, 0]
+# Valeur à adapter selon la distribution des classes du dataset (voir src/data/analyze_dataset.py) :
+# Ex 
+# dt                Rows        Classes    Median  p75   p90       Q5 share   Q1 share
+#    ---------------------------------------------------------------------------
+#    2026-02-13     552,589       972      168     480   1,561      75.5%       1.4%
+#    2026-02-16     551,783       969      166     478   1,546      75.6%       1.4%
+#    2026-03-02     340,075       576      202     583   1,663      73.2%       1.5%
+#    2026-03-03     581,943       982      175     501   1,609      76.2%       1.3%
+#    2026-03-07     599,935       993      173     502   1,632      76.2%       1.3%
+#    2026-03-09     596,852       992      172     500   1,628      76.3%       1.3%
+DEFAULT_CAP_VALUES = [200, 400, 600, 800, 1000, 1500, 0]
 
 # ---------------------------------------------------------------------------
 # Tâches
@@ -148,6 +158,16 @@ with DAG(
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["jobmarket", "ml", "experiment"],
+    doc_md="""
+        DAG pour tester différents plafonds de MAX_CLASS_COUNT et leur impact sur les métriques du modèle. 
+        La distribution des classes dans le dataset est très déséquilibrée, avec une longue traîne de classes rares.
+        La distribution sur un dataset est analysée dans src/data/analyze_dataset.py, 
+        sur l'ensemble des dt disponibles dans Gold (mode compare) les résultats sont :
+        - p50 = 170 (50% des classes ont ≤170 exemples)
+        - p75 = 500 (75% des classes ont ≤500 exemples)
+        - p90 autour de 1600 (90% des classes ont ≤1600 exemples)
+
+        """,    
     params={
         "dt": Param(
             None,
