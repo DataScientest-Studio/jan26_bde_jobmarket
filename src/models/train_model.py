@@ -50,24 +50,37 @@ Pipeline overview :
     which keeps only non-zero values and their indices, 
     reducing memory usage and enabling fast linear operations.
 
-    Model choice: LinearSVC (linear SVM) versus Logistic Regression
+    Model choice: SGDClassifier(loss='hinge') — same objective as LinearSVC, lower memory
     ----------------------
-    The chosen model is LinearSVC, a linear Support Vector Machine trained
-    to separate classes with hyperplanes in the high-dimensional TF-IDF space.
+    The classifier is SGDClassifier(loss='hinge'), which optimises the same hinge loss
+    as LinearSVC (linear SVM) and produces equivalent decision boundaries, but uses
+    Stochastic Gradient Descent instead of the LIBLINEAR batch solver.
+
+    The key difference is memory complexity:
+      - LinearSVC (LIBLINEAR): O(n_samples × n_classes) working memory — with 580 000 rows
+        and 992 classes the internal gradient structures saturate a 8 GB container (OOM / SIGKILL).
+      - SGDClassifier(hinge): O(n_features) — only the final weight matrix is kept in RAM,
+        regardless of dataset size.
+
+    Both models support class_weight="balanced" and decision_function() for top-k ranking.
+    Convergence is stochastic with SGD (not guaranteed optimal), but empirically equivalent
+    on large TF-IDF sparse matrices where the problem is nearly linearly separable.
 
     Text classification with TF-IDF often becomes close to linearly separable
     because the representation is high-dimensional and sparse, making a linear decision boundary effective.
+    This makes both LinearSVC and SGDClassifier(hinge) strong and lightweight baselines.
 
-    LinearSVC is typically efficient and robust on large sparse matrices and multi-class setups,
-    and it avoids the heavier computational costs that can appear with Logistic Regression
-    when the number of classes and features is large (solver sensitivity, higher memory/CPU requirements).
+    Top-k predictions are produced by ranking the decision scores returned by decision_function().
 
-    Top-k predictions can be produced by ranking the decision scores returned by the model's decision function.
+    Why not Logistic Regression: solver sensitivity and higher memory/CPU requirements when
+    the number of classes and features is large.
+
+    See docs/ML.md for a full comparison of LinearSVC vs SGDClassifier.
 
     Class imbalance and class_weight="balanced"
     ----------------------
     Job offer data is naturally skewed: common occupations (retail, logistics, IT) generate
-    10-50x more offers than specialised ones. Without correction, LinearSVC optimises the
+    10-50x more offers than specialised ones. Without correction, the model optimises the
     global margin and over-represents majority classes — minority classes end up with low
     recall and a degraded macro F1, even if overall accuracy looks acceptable.
 
@@ -169,7 +182,7 @@ Pipeline overview :
                         │                         │
                         │   1. Split 80/10/10     │
                         │   2. TF-IDF Vectorizer  │
-                        │   3. LinearSVC          │
+                        │   3. SGDClassifier      │
                         │   4. Metrics (Top-K)    │
                         └─────────────┬───────────┘
                                       │
@@ -210,7 +223,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
-from sklearn.svm import LinearSVC
+from sklearn.linear_model import SGDClassifier
 from scipy.stats import uniform, randint
 
 from src.config.env import require_env, get_project_root, load_project_env
@@ -253,7 +266,9 @@ TFIDF_MAX_FEATURES = os.getenv("TFIDF_MAX_FEATURES")  # None or int
 # Recommended: p90 of the class frequency distribution (see docs/ML.md and analyze_dataset.py).
 MAX_CLASS_COUNT = int(os.getenv("MAX_CLASS_COUNT", "0"))
 
-# LinearSVC params
+# SGDClassifier params (remplace LinearSVC — même objectif hinge loss, mémoire O(n_features) vs O(n_samples))
+# SVC_C est conservé comme interface : alpha = 1/(n_train * C) est calculé dynamiquement.
+# Voir docs/ML.md pour le détail de la conversion et les raisons du remplacement.
 SVC_C = float(os.getenv("SVC_C", "1.0"))
 # class_weight="balanced" reweights each class inversely proportional to its frequency.
 # This corrects the bias toward majority classes without modifying the dataset.
@@ -358,14 +373,20 @@ def train_without_tuning(X_train, y_train, X_val, y_val):
     X_train_vec = vectorizer.fit_transform(X_train)
     X_val_vec = vectorizer.transform(X_val)
     
-    model = LinearSVC(C=SVC_C, class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE)
-    print("🏋️ Training LinearSVC...")
+    # alpha = 1/(n_train * C) — conversion standard LinearSVC C → SGD alpha (voir docs/ML.md)
+    n_train = X_train_vec.shape[0]
+    sgd_alpha = 1.0 / (n_train * SVC_C)
+    model = SGDClassifier(
+        loss='hinge', alpha=sgd_alpha, class_weight=SVC_CLASS_WEIGHT,
+        max_iter=1000, tol=1e-3, random_state=RANDOM_STATE,
+    )
+    print("🏋️ Training SGDClassifier(hinge)...")
     model.fit(X_train_vec, y_train)
-    
+
     # Validation score (for monitoring)
     val_acc = accuracy_score(y_val, model.predict(X_val_vec))
     print(f"✅ Validation accuracy: {val_acc:.4f}")
-    
+
     config = {
         "strategy": "none",
         "tfidf": {
@@ -375,7 +396,7 @@ def train_without_tuning(X_train, y_train, X_val, y_val):
             "sublinear_tf": TFIDF_SUBLINEAR_TF,
             "max_features": max_features,
         },
-        "model": {"type": "LinearSVC", "C": SVC_C},
+        "model": {"type": "SGDClassifier", "loss": "hinge", "alpha": sgd_alpha, "equivalent_C": SVC_C},
     }
     
     return vectorizer, model, config
@@ -426,8 +447,12 @@ def train_with_manual_tuning(X_train, y_train, X_val, y_val):
                 X_train_vec = vectorizer.fit_transform(X_train)
                 X_val_vec = vectorizer.transform(X_val)
                 
-                # Train model
-                model = LinearSVC(C=C, class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE)
+                # Train model — alpha = 1/(n_train * C) (voir docs/ML.md)
+                sgd_alpha = 1.0 / (X_train_vec.shape[0] * C)
+                model = SGDClassifier(
+                    loss='hinge', alpha=sgd_alpha, class_weight=SVC_CLASS_WEIGHT,
+                    max_iter=1000, tol=1e-3, random_state=RANDOM_STATE,
+                )
                 model.fit(X_train_vec, y_train)
                 
                 # Evaluate on validation
@@ -460,7 +485,7 @@ def train_with_manual_tuning(X_train, y_train, X_val, y_val):
             "max_df": TFIDF_MAX_DF,
             "sublinear_tf": TFIDF_SUBLINEAR_TF,
         },
-        "model": {"type": "LinearSVC", "C": best_config["C"]},
+        "model": {"type": "SGDClassifier", "loss": "hinge", "equivalent_C": best_config["C"]},
     }
     
     return best_vectorizer, best_model, config
@@ -483,19 +508,23 @@ def train_with_grid_search(X_train, y_train, X_val, y_val):
     print(f"    max_df: {GRID_SEARCH_MAX_DF}")
     print(f"    C: {GRID_SEARCH_C}")
     
-    # Create pipeline
+    # Create pipeline — SGDClassifier remplace LinearSVC (voir docs/ML.md)
+    # alpha = 1/(n_train * C) : les valeurs C de GRID_SEARCH_C sont converties en alpha.
+    n_train = X_train.shape[0]
+    alpha_values = [1.0 / (n_train * C) for C in GRID_SEARCH_C]
     pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(dtype=np.float32)),
-        ('svc', LinearSVC(class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE))
+        ('svc', SGDClassifier(loss='hinge', class_weight=SVC_CLASS_WEIGHT,
+                              max_iter=1000, tol=1e-3, random_state=RANDOM_STATE))
     ])
-    
+
     # Define parameter grid using env variables
     param_grid = {
         'tfidf__ngram_range': ngram_ranges,
         'tfidf__min_df': GRID_SEARCH_MIN_DF,
         'tfidf__max_df': GRID_SEARCH_MAX_DF,
         'tfidf__sublinear_tf': [True, False],
-        'svc__C': GRID_SEARCH_C
+        'svc__alpha': alpha_values,
     }
     
     total_combinations = (
@@ -547,7 +576,7 @@ def train_with_grid_search(X_train, y_train, X_val, y_val):
             "max_df": grid_search.best_params_['tfidf__max_df'],
             "sublinear_tf": grid_search.best_params_['tfidf__sublinear_tf'],
         },
-        "model": {"type": "LinearSVC", "C": grid_search.best_params_['svc__C']},
+        "model": {"type": "SGDClassifier", "loss": "hinge", "alpha": grid_search.best_params_['svc__alpha']},
     }
     
     return best_vectorizer, best_model, config
@@ -565,19 +594,24 @@ def train_with_random_search(X_train, y_train, X_val, y_val):
     """
     print("📌 Strategy: RANDOMIZED SEARCH with Cross-Validation")
     
-    # Use a pipeline
+    # Use a pipeline — SGDClassifier remplace LinearSVC (voir docs/ML.md)
+    # alpha = 1/(n_train * C) : C ∈ [0.1, 10.1] → alpha ∈ [1/(n*10.1), 1/(n*0.1)]
+    n_train = X_train.shape[0]
+    alpha_low = 1.0 / (n_train * 10.1)
+    alpha_high = 1.0 / (n_train * 0.1)
     pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(dtype=np.float32)),
-        ('svc', LinearSVC(class_weight=SVC_CLASS_WEIGHT, random_state=RANDOM_STATE))
+        ('svc', SGDClassifier(loss='hinge', class_weight=SVC_CLASS_WEIGHT,
+                              max_iter=1000, tol=1e-3, random_state=RANDOM_STATE))
     ])
-    
+
     # Define parameter distributions
     param_distributions = {
         'tfidf__ngram_range': [(1, 1), (1, 2), (1, 3)],
-        'tfidf__min_df': randint(2, 10),  # Random int between 2 and 10
-        'tfidf__max_df': uniform(0.80, 0.15),  # Random float between 0.80 and 0.95 - ex 0.90 ignore terms present in more than 90% of documents
-        'tfidf__sublinear_tf': [True, False], # sublinear_tf is a boolean, so we can just list the options
-        'svc__C': uniform(0.1, 10)  # Random float between 0.1 and 10.1
+        'tfidf__min_df': randint(2, 10),
+        'tfidf__max_df': uniform(0.80, 0.15),
+        'tfidf__sublinear_tf': [True, False],
+        'svc__alpha': uniform(alpha_low, alpha_high - alpha_low),
     }
     
     n_iter = 20  # Number of random combinations to test
@@ -625,7 +659,7 @@ def train_with_random_search(X_train, y_train, X_val, y_val):
             "max_df": float(random_search.best_params_['tfidf__max_df']),
             "sublinear_tf": random_search.best_params_['tfidf__sublinear_tf'],
         },
-        "model": {"type": "LinearSVC", "C": float(random_search.best_params_['svc__C'])},
+        "model": {"type": "SGDClassifier", "loss": "hinge", "alpha": float(random_search.best_params_['svc__alpha'])},
     }
     
     return best_vectorizer, best_model, config
