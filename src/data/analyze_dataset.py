@@ -12,6 +12,9 @@ Usage:
 
     # Explicit dt
     python -m src.data.analyze_dataset --dt 2026-02-13
+
+    # Compare all dt partitions available in Gold
+    python -m src.data.analyze_dataset --mode compare
 """
 
 from __future__ import annotations
