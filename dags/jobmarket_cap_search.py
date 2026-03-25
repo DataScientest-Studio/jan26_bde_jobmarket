@@ -5,7 +5,10 @@ Entraîne un modèle pour chaque valeur de cap, dans l'ordre défini par CAP_VAL
 sans mettre à jour LATEST.json (mode expérience).
 
 Les tâches s'exécutent séquentiellement pour éviter la contention mémoire
-(chaque run LinearSVC + TF-IDF peut consommer plusieurs Go de RAM).
+(chaque run SGDClassifier(hinge) + TF-IDF peut consommer 1-2 Go de RAM).
+Le modèle utilise SGDClassifier(loss='hinge') à la place de LinearSVC :
+même objectif hinge loss, mais mémoire O(n_features) vs O(n_samples×n_classes).
+Voir docs/ML.md pour le détail.
 
 Résultats sauvegardés dans Gold : models/cap_search/{dt}/results.json
 Le tableau comparatif est visible dans les logs de la tâche save_results.
@@ -139,7 +142,7 @@ def _save_and_print_results(**context) -> None:
 # ---------------------------------------------------------------------------
 
 with DAG(
-    dag_id="jobmarket_cap_search",
+    dag_id="cap_search",
     description="Grid search expérimental sur MAX_CLASS_COUNT — non schedulé",
     schedule=None,                        # déclenchement manuel uniquement
     start_date=datetime(2026, 1, 1),
