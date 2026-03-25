@@ -151,6 +151,33 @@ Pipeline overview :
 
     See HYPERPARAMETER_TUNING.md for detailed usage and examples.
 
+    CLI usage examples
+    ----------------------
+    # Standard run — latest Gold dt, cap=500 (MAX_CLASS_COUNT from .env), updates LATEST.json
+    python -m src.models.train_model
+
+    # Specific dataset date
+    python -m src.models.train_model --dt 2026-03-23
+
+    # Experiment run — cap override, no LATEST.json update, versioned path includes cap+dt
+    python -m src.models.train_model --max-class-count 480 --no-update-latest
+
+    # Disable capping entirely
+    python -m src.models.train_model --max-class-count 0 --no-update-latest
+
+    # With manual tuning strategy
+    python -m src.models.train_model --tuning-strategy manual --no-update-latest
+
+    # Full experiment: specific dt, custom cap, no prod update
+    python -m src.models.train_model --dt 2026-03-09 --max-class-count 500 --no-update-latest
+
+    Key env vars (configurable in .env):
+        MAX_CLASS_COUNT     Cap per class before training (default: 500, 0 = disabled)
+        --tuning-strategy   none | manual | grid | random (default: TUNING_STRATEGY env var)
+        SVC_CLASS_WEIGHT    balanced | none (default: balanced)
+        MODEL_VERSION       Version label prefix (e.g. v2) — combined with dt: v2_cap500_2026-03-23
+        TFIDF_MAX_FEATURES  Max TF-IDF vocabulary size (default: 200000)
+
 
                         ┌─────────────────────────┐
                         │ FT Bronze Layer (JSONL) │
@@ -951,7 +978,15 @@ def main() -> None:
         default=False,
         help="Do not update LATEST.json after training. Use for experiment runs (cap tuning, ablations).",
     )
+    parser.add_argument(
+        "--tuning-strategy",
+        default=None,
+        choices=["none", "manual", "grid", "random"],
+        help="Tuning strategy. Omit to use TUNING_STRATEGY env var (default: none).",
+    )
     args = parser.parse_args()
+    if args.tuning_strategy is not None:
+        os.environ["TUNING_STRATEGY"] = args.tuning_strategy
     result = train(args.dt, update_latest=not args.no_update_latest, max_class_count=args.max_class_count)
     logger.info("Training completed: %s", result)
 
