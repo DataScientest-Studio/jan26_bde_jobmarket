@@ -1,5 +1,5 @@
 """
-DAG expérimental — Grid search sur MAX_CLASS_COUNT.
+Recherche du cap (nombre d'exemples par classe) optimal pour MAX_CLASS_COUNT.
 
 Entraîne un modèle pour chaque valeur de cap, dans l'ordre défini par CAP_VALUES,
 sans mettre à jour LATEST.json (mode expérience).
