@@ -79,7 +79,9 @@ def _save_and_print_results(**context) -> None:
     from src.storage.storage import get_storage_from_env
 
     ti = context["task_instance"]
-    cap_values = context["params"].get("caps", DEFAULT_CAP_VALUES)
+    # Les task IDs sont statiques (définis à partir de DEFAULT_CAP_VALUES au parsing du DAG).
+    # On doit utiliser DEFAULT_CAP_VALUES ici — pas context["params"]["caps"] qui peut diverger.
+    cap_values = DEFAULT_CAP_VALUES
 
     results = []
     for cap in cap_values:
@@ -174,11 +176,8 @@ with DAG(
             type=["null", "string"],
             description="Dataset dt à utiliser (YYYY-MM-DD). Vide = dernier dt disponible.",
         ),
-        "caps": Param(
-            DEFAULT_CAP_VALUES,
-            type="array",
-            description="Liste des caps à tester (0 = pas de cap).",
-        ),
+        # Les caps ne sont pas configurables via params — les task IDs sont statiques.
+        # Pour changer les caps, modifier DEFAULT_CAP_VALUES dans le code du DAG.
     },
     default_args={
         "owner": "jobmarket",
@@ -200,9 +199,12 @@ with DAG(
     save_results = PythonOperator(
         task_id="save_results",
         python_callable=_save_and_print_results,
+        # all_done : s'exécute même si certaines tâches cap ont échoué ou été skippées
+        trigger_rule="all_done",
     )
 
-    # Exécution séquentielle : cap_500 → cap_1000 → cap_1628 → cap_2500 → cap_nocap → save_results
+    # Exécution séquentielle : cap_500 → cap_1000 → cap_1628 → cap_2500 → cap_nocap
+    # save_results dépend de toutes les tâches cap pour collecter chaque XCom
     for i in range(len(cap_tasks) - 1):
         cap_tasks[i] >> cap_tasks[i + 1]
-    cap_tasks[-1] >> save_results
+    cap_tasks >> save_results
