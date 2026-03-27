@@ -1,0 +1,10 @@
+-- Répartition offres entreprise connue vs UNKNOWN
+SELECT
+    CASE WHEN co.company_name = 'UNKNOWN' THEN 'Non renseigné' ELSE 'Renseigné' END AS statut_company,
+    source,
+    COUNT(*) AS nb_offres,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY source), 1) AS pct
+FROM gold.fact_offre_emploi f
+JOIN gold.dim_company co ON co.company_key = f.company_key
+GROUP BY statut_company, source
+ORDER BY source, statut_company;
