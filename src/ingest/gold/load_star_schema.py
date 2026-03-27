@@ -216,6 +216,9 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
         "company_name": "",
         "company_city": "",
         "company_postal_code": "",
+        "company_url": "",
+        "number_employees": None,
+        "annual_revenue": None,
         "naf_code": "UNKNOWN",
         "salary_min": 0.0,
         "salary_max": 0.0,
@@ -262,6 +265,10 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
     for col in text_cols:
         staging[col] = staging[col].fillna("UNKNOWN").astype(str).str.strip()
         staging[col] = staging[col].replace("", "UNKNOWN")
+
+    staging["company_name"] = (
+        staging["company_name"].fillna("").astype(str).str.strip().str.upper().replace("", "UNKNOWN")
+    )
 
     # Keep a single business label for missing experience values.
     staging["experience_normalized"] = staging["experience_normalized"].replace(
@@ -318,6 +325,9 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
         "company_name",
         "company_city",
         "company_postal_code",
+        "company_url",
+        "number_employees",
+        "annual_revenue",
         "naf_code",
         "salary_min",
         "salary_max",
@@ -362,6 +372,9 @@ def _copy_staging(conn, df: pd.DataFrame, chunk_size: int = 50_000) -> None:
         "company_name",
         "company_city",
         "company_postal_code",
+        "company_url",
+        "number_employees",
+        "annual_revenue",
         "naf_code",
         "salary_min",
         "salary_max",
@@ -475,6 +488,25 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
         )
 
         cur.execute(
+            """
+            INSERT INTO gold.dim_company (company_name, company_city, company_postal_code)
+            SELECT DISTINCT ON (company_name)
+                COALESCE(NULLIF(company_name, ''), 'UNKNOWN') AS company_name,
+                NULLIF(company_city, '') AS company_city,
+                NULLIF(company_postal_code, '') AS company_postal_code
+            FROM gold.stg_offer
+            WHERE run_id = %s
+            ORDER BY company_name, company_city NULLS LAST
+            ON CONFLICT (company_name)
+            DO UPDATE SET
+                company_city = COALESCE(EXCLUDED.company_city, gold.dim_company.company_city),
+                company_postal_code = COALESCE(EXCLUDED.company_postal_code, gold.dim_company.company_postal_code),
+                updated_at = NOW()
+            """,
+            (run_id,),
+        )
+
+        cur.execute(
                 """
                 INSERT INTO gold.fact_offre_emploi (
                         offer_id,
@@ -485,6 +517,7 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                         rome_key,
                         contract_key,
                         experience_key,
+                        company_key,
                         status,
                         published_at,
                         updated_at,
@@ -493,9 +526,6 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                         description,
                         job_postal_code,
                         job_city,
-                        company_name,
-                        company_city,
-                        company_postal_code,
                         salary_min,
                         salary_max,
                         salary_periodicity,
@@ -512,6 +542,7 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                         dr.rome_key,
                         dc.contract_key,
                         de.experience_key,
+                        dco.company_key,
                         s.status,
                         s.published_at,
                         s.updated_at,
@@ -520,9 +551,6 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                         s.description,
                         s.job_postal_code,
                         s.job_city,
-                        s.company_name,
-                        s.company_city,
-                        s.company_postal_code,
                         s.salary_min,
                         s.salary_max,
                         s.salary_periodicity,
@@ -540,6 +568,8 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                     ON dc.contract_type = COALESCE(NULLIF(s.contract_normalized, ''), 'Non précisé')
                 JOIN gold.dim_experience de
                     ON de.experience_level = COALESCE(NULLIF(s.experience_normalized, ''), 'Non précisé')
+                JOIN gold.dim_company dco
+                    ON dco.company_name = COALESCE(NULLIF(s.company_name, ''), 'UNKNOWN')
                 WHERE s.run_id = %s
                 ON CONFLICT (offer_id, source)
                 DO UPDATE SET
@@ -549,6 +579,7 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                         rome_key = EXCLUDED.rome_key,
                         contract_key = EXCLUDED.contract_key,
                         experience_key = EXCLUDED.experience_key,
+                        company_key = EXCLUDED.company_key,
                         status = EXCLUDED.status,
                         published_at = EXCLUDED.published_at,
                         updated_at = EXCLUDED.updated_at,
@@ -557,9 +588,6 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
                         description = EXCLUDED.description,
                         job_postal_code = EXCLUDED.job_postal_code,
                         job_city = EXCLUDED.job_city,
-                        company_name = EXCLUDED.company_name,
-                        company_city = EXCLUDED.company_city,
-                        company_postal_code = EXCLUDED.company_postal_code,
                         salary_min = EXCLUDED.salary_min,
                         salary_max = EXCLUDED.salary_max,
                         salary_periodicity = EXCLUDED.salary_periodicity,

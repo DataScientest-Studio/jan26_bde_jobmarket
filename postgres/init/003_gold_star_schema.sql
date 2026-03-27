@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS gold.stg_offer (
     company_name TEXT,
     company_city TEXT,
     company_postal_code TEXT,
+    company_url TEXT,
+    number_employees INTEGER,
+    annual_revenue NUMERIC(15,2),
     naf_code TEXT,
     salary_min NUMERIC(12,2),
     salary_max NUMERIC(12,2),
@@ -130,6 +133,18 @@ CREATE TABLE IF NOT EXISTS gold.dim_experience (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS gold.dim_company (
+    company_key     BIGSERIAL PRIMARY KEY,
+    company_name    TEXT NOT NULL UNIQUE,
+    company_city    TEXT,
+    company_postal_code TEXT,
+    company_url     TEXT,
+    number_employees INTEGER,
+    annual_revenue  NUMERIC(15,2),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Unknown members to avoid NULL foreign keys
 INSERT INTO gold.dim_code_rome (rome_code, rome_label)
 VALUES ('UNKNOWN', 'Unknown ROME')
@@ -142,6 +157,10 @@ ON CONFLICT (contract_type) DO NOTHING;
 INSERT INTO gold.dim_experience (experience_level)
 VALUES ('UNKNOWN')
 ON CONFLICT (experience_level) DO NOTHING;
+
+INSERT INTO gold.dim_company (company_name)
+VALUES ('UNKNOWN')
+ON CONFLICT (company_name) DO NOTHING;
 
 -- -----------------------------
 -- Minimal fact (1 row per offer)
@@ -157,6 +176,7 @@ CREATE TABLE IF NOT EXISTS gold.fact_offre_emploi (
     rome_key       BIGINT NOT NULL REFERENCES gold.dim_code_rome(rome_key),
     contract_key   BIGINT NOT NULL REFERENCES gold.dim_type_contrat(contract_key),
     experience_key BIGINT NOT NULL REFERENCES gold.dim_experience(experience_key),
+    company_key    BIGINT NOT NULL REFERENCES gold.dim_company(company_key),
 
     status TEXT,
     published_at TIMESTAMPTZ,
@@ -167,9 +187,6 @@ CREATE TABLE IF NOT EXISTS gold.fact_offre_emploi (
     description TEXT,
     job_postal_code TEXT,
     job_city TEXT,
-    company_name TEXT,
-    company_city TEXT,
-    company_postal_code TEXT,
     salary_min NUMERIC(12,2),
     salary_max NUMERIC(12,2),
     salary_periodicity TEXT,
