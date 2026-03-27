@@ -39,6 +39,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     command: server /data --console-address ":9001"
     volumes:
       - ./data:/data
@@ -270,6 +271,51 @@ services:
       - ./streamlit:/app
       - ./src:/app/src
 
+
+  jobmarket-prometheus:
+    cpus: "0.5"
+    mem_limit: 512m
+    memswap_limit: 1g
+    image: prom/prometheus:latest
+    container_name: jobmarket-prometheus
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+
+  jobmarket-pushgateway:
+    cpus: "0.25"
+    mem_limit: 128m
+    memswap_limit: 256m
+    image: prom/pushgateway:latest
+    container_name: jobmarket-pushgateway
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
+    ports:
+      - "9091:9091"
+
+  jobmarket-postgres-exporter:
+    cpus: "0.25"
+    mem_limit: 128m
+    memswap_limit: 256m
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: jobmarket-postgres-exporter
+    restart: unless-stopped
+    networks:
+      - jobmarket-net
+    depends_on:
+      - jobmarket-postgres
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@jobmarket-postgres:5432/${POSTGRES_DB}?sslmode=disable
 
 volumes:
   grafana-data:

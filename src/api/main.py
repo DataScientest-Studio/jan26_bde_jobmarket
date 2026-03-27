@@ -135,6 +135,12 @@ Use the endpoints below to test the API directly from this interface.
 )
 
 # ------------------------------------
+# Prometheus metrics
+# ------------------------------------
+from prometheus_fastapi_instrumentator import Instrumentator
+Instrumentator().instrument(app).expose(app)
+
+# ------------------------------------
 # Global in-memory state
 # ------------------------------------
 
