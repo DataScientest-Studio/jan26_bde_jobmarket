@@ -1,0 +1,433 @@
+{
+  "uid": "jobmarket-pipeline-prometheus",
+  "title": "5 — Pipeline Monitoring (Prometheus)",
+  "description": "Statut des runs par couche médaillon — Bronze / Silver / Gold",
+  "tags": ["prometheus", "pipeline", "monitoring"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 3,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+
+    { "id": 1, "type": "text", "title": "", "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
+      "options": { "mode": "markdown", "content": "## 🥉 Bronze — Ingestion" } },
+
+    { "id": 2, "type": "stat", "title": "Ingest FT",
+      "gridPos": { "x": 0, "y": 2, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"bronze\",source=\"france_travail\"}", "legendFormat": "France Travail", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"bronze\",source=\"france_travail\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 3, "type": "stat", "title": "Ingest WTTJ",
+      "gridPos": { "x": 8, "y": 2, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"bronze\",source=\"wttj\"}", "legendFormat": "WTTJ", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"bronze\",source=\"wttj\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 4, "type": "stat", "title": "Référentiel ROME",
+      "gridPos": { "x": 16, "y": 2, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"bronze\",source=\"rome_metiers\"}", "legendFormat": "ROME métiers", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"bronze\",source=\"rome_metiers\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 10, "type": "text", "title": "", "gridPos": { "x": 0, "y": 8, "w": 24, "h": 2 },
+      "options": { "mode": "markdown", "content": "## 🥈 Silver — Normalisation & Enrichissement" } },
+
+    { "id": 11, "type": "stat", "title": "Normalize FT",
+      "gridPos": { "x": 0, "y": 10, "w": 5, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"silver\",source=\"france_travail\"}", "legendFormat": "Normalize FT", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"silver\",source=\"france_travail\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 12, "type": "stat", "title": "Normalize WTTJ",
+      "gridPos": { "x": 5, "y": 10, "w": 5, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"silver\",source=\"wttj\"}", "legendFormat": "Normalize WTTJ", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"silver\",source=\"wttj\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 13, "type": "stat", "title": "Merge FT + WTTJ",
+      "gridPos": { "x": 10, "y": 10, "w": 4, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"silver\",source=\"merged\"}", "legendFormat": "Merge", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"silver\",source=\"merged\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 14, "type": "stat", "title": "Historique statuts",
+      "gridPos": { "x": 14, "y": 10, "w": 5, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"silver\",source=\"status_tracking\"}", "legendFormat": "Status Tracking", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"silver\",source=\"status_tracking\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 15, "type": "stat", "title": "Dataset Analytics",
+      "gridPos": { "x": 19, "y": 10, "w": 5, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"silver\",source=\"status_analytics\"}", "legendFormat": "Status Analytics", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"silver\",source=\"status_analytics\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 16, "type": "timeseries", "title": "Distribution des statuts d'offres (published / unpublished / reappeared)",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "FT — published" },   "properties": [{ "id": "color", "value": { "fixedColor": "green",      "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "FT — unpublished" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange",     "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "FT — reappeared" },  "properties": [{ "id": "color", "value": { "fixedColor": "blue",        "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "WTTJ — published" }, "properties": [{ "id": "color", "value": { "fixedColor": "dark-green",  "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "WTTJ — unpublished" },"properties": [{ "id": "color", "value": { "fixedColor": "red",        "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "WTTJ — reappeared" },"properties": [{ "id": "color", "value": { "fixedColor": "dark-blue",  "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_status_count{stage=\"silver\",offer_source=\"FT\",status=\"published\"}",    "legendFormat": "FT — published" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_status_count{stage=\"silver\",offer_source=\"FT\",status=\"unpublished\"}",  "legendFormat": "FT — unpublished" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_status_count{stage=\"silver\",offer_source=\"FT\",status=\"reappeared\"}",   "legendFormat": "FT — reappeared" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_status_count{stage=\"silver\",offer_source=\"WTTJ\",status=\"published\"}",  "legendFormat": "WTTJ — published" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_status_count{stage=\"silver\",offer_source=\"WTTJ\",status=\"unpublished\"}","legendFormat": "WTTJ — unpublished" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_status_count{stage=\"silver\",offer_source=\"WTTJ\",status=\"reappeared\"}",  "legendFormat": "WTTJ — reappeared" }
+      ]
+    },
+
+    { "id": 20, "type": "text", "title": "", "gridPos": { "x": 0, "y": 24, "w": 24, "h": 2 },
+      "options": { "mode": "markdown", "content": "## 🥇 Gold — Chargement Star Schema" } },
+
+    { "id": 21, "type": "stat", "title": "Dim Géo",
+      "gridPos": { "x": 0, "y": 26, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"gold\",source=\"geo_dim\"}", "legendFormat": "load_geo_dim", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"gold\",source=\"geo_dim\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 22, "type": "stat", "title": "Dim NAF",
+      "gridPos": { "x": 8, "y": 26, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"gold\",source=\"naf_dim\"}", "legendFormat": "load_naf_dim", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"gold\",source=\"naf_dim\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 23, "type": "stat", "title": "Star Schema (Fact + Dims)",
+      "gridPos": { "x": 16, "y": 26, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "orientation": "vertical" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "1": { "text": "OK", "color": "green" }, "0": { "text": "FAIL", "color": "red" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Dernier run" }, "properties": [
+          { "id": "unit", "value": "dateTimeAsLocal" },
+          { "id": "mappings", "value": [] },
+          { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+          { "id": "decimals", "value": 0 }
+        ]}]
+      },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_status{stage=\"gold\",source=~\"merged|status_analytics\"}", "legendFormat": "load_star_schema", "instant": true },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_last_run_unixtime{stage=\"gold\",source=~\"merged|status_analytics\"}", "legendFormat": "Dernier run", "instant": true }
+      ]
+    },
+
+    { "id": 30, "type": "text", "title": "", "gridPos": { "x": 0, "y": 32, "w": 24, "h": 2 },
+      "options": { "mode": "markdown", "content": "## Volumes & Durées" } },
+
+    { "id": 31, "type": "timeseries", "title": "Durée des runs (secondes)",
+      "gridPos": { "x": 0, "y": 34, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"france_travail\",stage=\"bronze\"}", "legendFormat": "Bronze FT" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"wttj\",stage=\"bronze\"}", "legendFormat": "Bronze WTTJ" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"france_travail\",stage=\"silver\"}", "legendFormat": "Silver FT" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"wttj\",stage=\"silver\"}", "legendFormat": "Silver WTTJ" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"merged\"}", "legendFormat": "Merge" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"status_tracking\"}", "legendFormat": "Status Tracking" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{source=\"status_analytics\"}", "legendFormat": "Status Analytics" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_run_duration_seconds{stage=\"gold\"}", "legendFormat": "Gold" }
+      ]
+    },
+
+    { "id": 32, "type": "timeseries", "title": "Volume traité par run (nb lignes)",
+      "gridPos": { "x": 12, "y": 34, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_rows_total{source=\"france_travail\",stage=\"bronze\"}", "legendFormat": "Bronze FT" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_rows_total{source=\"wttj\",stage=\"bronze\"}", "legendFormat": "Bronze WTTJ" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_rows_total{source=\"france_travail\",stage=\"silver\"}", "legendFormat": "Silver FT" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_rows_total{source=\"wttj\",stage=\"silver\"}", "legendFormat": "Silver WTTJ" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_rows_total{source=\"merged\"}", "legendFormat": "Merge" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "pipeline_rows_total{stage=\"gold\"}", "legendFormat": "Gold" }
+      ]
+    },
+
+    { "id": 40, "type": "text", "title": "", "gridPos": { "x": 0, "y": 42, "w": 24, "h": 2 },
+      "options": { "mode": "markdown", "content": "## Qualité des données (Gold)" } },
+
+    { "id": 41, "type": "stat", "title": "Taille fact_offre_emploi",
+      "gridPos": { "x": 0, "y": 44, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "max(data_fact_table_size)", "legendFormat": "Nb offres", "instant": true }]
+    },
+
+    { "id": 42, "type": "gauge", "title": "% Entreprises UNKNOWN",
+      "gridPos": { "x": 8, "y": 44, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 60 }] }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "max(data_company_unknown_ratio) * 100", "instant": true }]
+    },
+
+    { "id": 43, "type": "gauge", "title": "% ROME UNKNOWN",
+      "gridPos": { "x": 16, "y": 44, "w": 8, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": {
+        "unit": "percent", "min": 0, "max": 100,
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 25 }] }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "max(data_rome_unknown_ratio) * 100", "instant": true }]
+    },
+
+    { "id": 50, "type": "text", "title": "", "gridPos": { "x": 0, "y": 49, "w": 24, "h": 2 },
+      "options": { "mode": "markdown", "content": "## 🤖 ML API — Prédictions ROME" } },
+
+    { "id": 51, "type": "stat", "title": "Total prédictions (session)",
+      "gridPos": { "x": 0, "y": 51, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": {
+        "unit": "short",
+        "color": { "fixedColor": "purple", "mode": "fixed" },
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "ml_predictions_total", "legendFormat": "Prédictions", "instant": true }]
+    },
+
+    { "id": 52, "type": "stat", "title": "Cold start — durée moyenne",
+      "gridPos": { "x": 6, "y": 51, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": {
+        "unit": "s", "decimals": 2,
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 }] }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "ml_cold_start_seconds_sum / ml_cold_start_seconds_count", "legendFormat": "durée moyenne", "instant": true }]
+    },
+
+    { "id": 53, "type": "stat", "title": "Cold start — nb restarts",
+      "gridPos": { "x": 12, "y": 51, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": {
+        "unit": "short", "decimals": 0,
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 10 }] }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "ml_cold_start_seconds_count", "legendFormat": "nb cold starts", "instant": true }]
+    },
+
+    { "id": 54, "type": "stat", "title": "Prédictions / heure (dernière heure)",
+      "gridPos": { "x": 18, "y": 51, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "fieldConfig": { "defaults": {
+        "unit": "short", "decimals": 0,
+        "color": { "fixedColor": "purple", "mode": "fixed" },
+        "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(ml_predictions_total[5m]) * 3600", "legendFormat": "pred/h", "instant": true }]
+    },
+
+    { "id": 55, "type": "timeseries", "title": "Prédictions / heure — historique",
+      "gridPos": { "x": 0, "y": 56, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } },
+      "fieldConfig": { "defaults": {
+        "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15, "spanNulls": true },
+        "color": { "fixedColor": "purple", "mode": "fixed" }
+      }},
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(ml_predictions_total[5m]) * 3600", "legendFormat": "pred/h" }]
+    },
+
+    { "id": 56, "type": "timeseries", "title": "Latence /predict — p50 / p95 / p99",
+      "gridPos": { "x": 12, "y": 56, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{handler=\"/predict\"}[5m]))", "legendFormat": "p50" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{handler=\"/predict\"}[5m]))", "legendFormat": "p95" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{handler=\"/predict\"}[5m]))", "legendFormat": "p99" }
+      ]
+    }
+
+  ]
+}
