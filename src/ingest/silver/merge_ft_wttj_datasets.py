@@ -355,7 +355,9 @@ def merge_ft_wttj_datasets(
     logger.info(f"📂 Destination: {output_prefix}")
     logger.info("")
 
+    # =======================================
     # Read source-normalized silver data for WTTJ
+    # =======================================
     if progress_callback:
         progress_callback("reading_wttj", "Lecture des données WTTJ...")
     df_wttj = read_silver_parquet_data(storage_wttj, wttj_prefix, "Welcome To The Jungle")
@@ -364,7 +366,9 @@ def merge_ft_wttj_datasets(
         progress_callback("harmonizing_wttj", f"Harmonisation schéma WTTJ ({len(df_wttj):,} offres)...")
     df_wttj = harmonize_silver_schema(df_wttj, "WTTJ")
 
+    # =======================================
     # Read source-normalized silver data for FT
+    # =======================================
     if progress_callback:
         progress_callback("reading_ft", "Lecture des données France Travail...")
     df_ft = read_silver_parquet_data(storage_ft, ft_prefix, "France Travail")
@@ -373,7 +377,9 @@ def merge_ft_wttj_datasets(
         progress_callback("harmonizing_ft", f"Harmonisation schéma FT ({len(df_ft):,} offres)...")
     df_ft = harmonize_silver_schema(df_ft, "FT")
 
+    # =======================================
     # Merge and deduplicate datasets
+    # =======================================
     if progress_callback:
         progress_callback("merging", "Fusion et déduplication...")
     df_merged = merge_and_deduplicate(df_ft, df_wttj)
@@ -381,9 +387,12 @@ def merge_ft_wttj_datasets(
     # =======================================
     # Apply normalization to mergeded dataset
     # =======================================
+
+    # Contract
     df_merged = merge_dataset_utils.normalize_contracts(df_merged, merge_dataset_utils.PATTERNS_CONTRACT_NORMALIZE)
     logger.info("✅ Normalize Contracts COMPLETED ")
 
+    # Experience
     # Create composite experience column for normalization
     # TODO : change column name in source
     df_merged['experience_source_composite'] = df_merged.apply(merge_dataset_utils.get_experience_col, axis=1)
@@ -394,6 +403,7 @@ def merge_ft_wttj_datasets(
     df_merged = merge_dataset_utils.normalize_experience(df_merged,'experience_source_composite')
     logger.info("✅ Normalize Experience COMPLETED ")
 
+    # Salary
     df_merged = merge_dataset_utils.normalize_salary(df_merged)
     logger.info("✅ Normalize Salary COMPLETED ")
     logger.info("✅ Normalize Yearly Salary COMPLETED ")
