@@ -253,17 +253,32 @@ def normalize_salary(df: pd.DataFrame) -> pd.DataFrame:
     fully vectorized pandas operations (~10x faster on large datasets).
 
     Columns added/updated on the returned DataFrame:
-      - periodicity  : 'Mensuel' | 'Annuel' | 'Horaire' | None
-      - salary_min   : float | None
-      - salary_max   : float | None
-      - yearly_min   : float | None  (normalized to annual amount)
-      - yearly_max   : float | None
+      - periodicity          : 'Mensuel' | 'Annuel' | 'Horaire' | None
+      - salary_min           : float | None  (raw value from source)
+      - salary_max           : float | None  (raw value from source)
+      - yearly_min           : float | None  (normalized to annual amount)
+      - yearly_max           : float | None  (normalized to annual amount)
+      - salary_min_computed  : float | None  (yearly_min after quality filters)
+      - salary_max_computed  : float | None  (yearly_max after quality filters)
+
+    Yearly conversion rules:
+      - Annuel  : kept as-is
+      - Mensuel : × 12
+      - Horaire : × 35h × 52 weeks (full-time assumption)
+
+    Quality filters (configurable via env vars):
+      - SALARY_ZERO_AS_INDETERMINATE (default: true) : salary_min == 0 → yearly = None
+      - SALARY_YEARLY_MIN (default: 20 000)          : yearly_min < threshold → computed = None
+      - SALARY_YEARLY_MAX (default: 80 000)          : yearly_min > threshold → yearly = None
+                                                        and computed = None
+      Values outside thresholds are treated as indeterminate (data exists but cannot be trusted).
 
     Args:
-        df: DataFrame with a 'salary_periodicity' column.
+        df: DataFrame with a 'salary_periodicity' column containing raw salary strings
+            (e.g. "Mensuel de 2500.0 Euros à 3000.0 Euros").
 
     Returns:
-        The same DataFrame with the 5 salary columns populated.
+        The same DataFrame with the 7 salary columns populated.
     """
     logger.info(f"✅ Start normalize_salary")
 
