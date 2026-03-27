@@ -122,6 +122,7 @@ services:
       STORAGE_BACKEND: s3
       S3_ENDPOINT_URL: http://jobmarket-minio:9000
       JOBSTORE_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@jobmarket-postgres:5432/${POSTGRES_DB}
+      PUSHGATEWAY_URL: http://jobmarket-pushgateway:9091
     volumes:
       - ./src:/app/src
       - ./logs:/app/logs
@@ -285,9 +286,11 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.path=/prometheus'
 
   jobmarket-pushgateway:
     cpus: "0.25"
@@ -300,6 +303,10 @@ services:
       - jobmarket-net
     ports:
       - "9091:9091"
+    volumes:
+      - pushgateway-data:/data
+    command:
+      - '--persistence.file=/data/pushgateway.db'
 
   jobmarket-postgres-exporter:
     cpus: "0.25"
@@ -322,3 +329,5 @@ volumes:
   jobdb-data:
   pgadmin-data:
   airflow-logs:
+  prometheus-data:
+  pushgateway-data:
