@@ -65,6 +65,7 @@ from src.storage.storage import get_storage_from_env
 from src.utils import storage_tools
 
 from src.utils.log_to_db import log_to_db
+from src.utils.prom_metrics import push_pipeline_metrics
 
 try:
     import psycopg
@@ -686,7 +687,8 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
 
         msg = f"[IMPORT] Dataset {key} (run_id={run_id}) ..."
         logger.info(msg)
-        log_to_db('load_star_schema', 'INFO', msg, task_id=task_id) 
+        log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
+        _run_start = datetime.now()
 
         # Load dataset
         if source == "status_analytics":
@@ -766,6 +768,22 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
 
                     cur.execute("SELECT COUNT(*) FROM gold.dim_experience")
                     dim_experience_count = cur.fetchone()[0]
+
+                    cur.execute("""
+                        SELECT
+                            ROUND(SUM(CASE WHEN co.company_name = 'UNKNOWN' THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*), 0), 4)
+                        FROM gold.fact_offre_emploi f
+                        JOIN gold.dim_company co ON co.company_key = f.company_key
+                    """)
+                    company_unknown_ratio = float(cur.fetchone()[0] or 0)
+
+                    cur.execute("""
+                        SELECT
+                            ROUND(SUM(CASE WHEN r.rome_code = 'UNKNOWN' THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*), 0), 4)
+                        FROM gold.fact_offre_emploi f
+                        JOIN gold.dim_code_rome r ON r.rome_key = f.rome_key
+                    """)
+                    rome_unknown_ratio = float(cur.fetchone()[0] or 0)
                 pbar.update(1)
 
                 msg = f"Commit"
@@ -805,6 +823,18 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                     cur.execute("DELETE FROM gold.stg_offer WHERE run_id = %s", (run_id,))
                 conn.commit()
                 pbar.update(1)
+
+        push_pipeline_metrics(
+            run_id=run_id,
+            stage="gold",
+            source=source,
+            rows=len(staging_df),
+            duration_seconds=(datetime.now() - _run_start).total_seconds(),
+            status=1,
+            fact_count=fact_count,
+            company_unknown_ratio=company_unknown_ratio,
+            rome_unknown_ratio=rome_unknown_ratio,
+        )
 
         msg=f"Completed import of dataset {key} (run_id={run_id}): {fact_count:,} fact rows, {dim_rome_count:,} ROME dim rows, {dim_contract_count:,} contract dim rows, {dim_experience_count:,} experience dim rows."
         logger.info(msg)
