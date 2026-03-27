@@ -141,7 +141,7 @@ def normalize_ft_jobs(dt: str, output_format: str = "parquet") -> NormalizeResul
                         entreprise = record.get("entreprise", {}) if isinstance(record, dict) else {}
                         if not isinstance(entreprise, dict):
                             entreprise = {}
-                        company_name = entreprise.get("nom", "")
+                        company_name = normalize_text(entreprise.get("nom", "")).upper()
 
                         salaire = record.get("salaire", {}) if isinstance(record, dict) else {}
                         if not isinstance(salaire, dict):
