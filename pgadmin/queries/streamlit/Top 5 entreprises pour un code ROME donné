@@ -1,0 +1,10 @@
+-- Top 5 entreprises pour un code ROME donné
+SELECT co.company_name, COUNT(*) AS nb_offres
+FROM gold.fact_offre_emploi f
+JOIN gold.dim_company   co ON co.company_key = f.company_key
+JOIN gold.dim_code_rome r  ON r.rome_key     = f.rome_key
+WHERE r.rome_code       = 'M1403'   
+  AND co.company_name  != 'UNKNOWN'
+GROUP BY co.company_name
+ORDER BY nb_offres DESC
+LIMIT 15;

@@ -1,0 +1,16 @@
+SELECT nom_region, company_name, nb_offres
+FROM (
+    SELECT
+        g.nom_region,
+        co.company_name,
+        COUNT(*) AS nb_offres,
+        RANK() OVER (PARTITION BY g.nom_region ORDER BY COUNT(*) DESC) AS rang
+    FROM gold.fact_offre_emploi f
+    JOIN gold.dim_company co ON co.company_key = f.company_key
+    JOIN gold.dim_geo     g  ON g.geo_key      = f.geo_key
+    WHERE co.company_name != 'UNKNOWN'
+      AND g.nom_region    != 'Unknown'
+    GROUP BY g.nom_region, co.company_name
+) ranked
+WHERE rang <= 5
+ORDER BY nom_region, nb_offres DESC;
