@@ -11,7 +11,7 @@ st.set_page_config(
 # ── Imports internes ──────────────────────────────────────────────────────────
 from components.styles import inject_styles
 from components.sidebar import render_sidebar
-from components import tab_vue_globale, tab_geographie, tab_salaires, tab_carte
+from components import tab_vue_globale, tab_geographie, tab_salaires, tab_carte, tab_entreprises
 
 # ── Styles CSS ────────────────────────────────────────────────────────────────
 inject_styles()
@@ -36,6 +36,8 @@ if filters.get("contrats"):
     actifs.append(f"{', '.join(filters['contrats'])}")
 if filters.get("secteurs"):
     actifs.append(f"{len(filters['secteurs'])} secteur(s)")
+if filters.get("entreprises"):
+    actifs.append(f"{len(filters['entreprises'])} entreprise(s)")
 if filters.get("postes"):
     actifs.append(f"\"{filters['postes']}\"")
 if filters.get("date_debut"):
@@ -56,11 +58,12 @@ if actifs:
     )
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "  Vue Globale  ",
     "  Géographie  ",
     "  Salaires  ",
     "  Carte  ",
+    "  Entreprises ",
 ])
 
 with tab1:
@@ -74,3 +77,6 @@ with tab3:
 
 with tab4:
     tab_carte.render(filters_key)
+
+with tab5:
+    tab_entreprises.render(filters_key)

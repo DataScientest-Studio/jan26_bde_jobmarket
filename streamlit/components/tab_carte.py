@@ -35,12 +35,18 @@ def _safe(v):
     if v is None: return None
     try:
         f = float(v); return None if math.isnan(f) else f
-    except: return None
+    except (TypeError, ValueError):
+        return None
 
 def _radius_px(nb, vmin, vmax, r_min, r_max):
     """Rayon en pixels pour folium CircleMarker."""
-    if vmax == vmin: return (r_min + r_max) // 2
-    t = ((nb - vmin) / (vmax - vmin)) ** 0.5
+    if vmax == vmin:
+        return (r_min + r_max) // 2
+    # nb peut être < vmin (zones sans données => nb=0). On clamp pour éviter sqrt(<0).
+    denom = (vmax - vmin)
+    ratio = 0.0 if denom == 0 else (nb - vmin) / denom
+    ratio = 0.0 if ratio < 0 else (1.0 if ratio > 1 else ratio)
+    t = ratio ** 0.5
     return int(r_min + t * (r_max - r_min))
 
 
@@ -50,9 +56,18 @@ def _build_map(geojson_path, df, is_region):
     with open(geojson_path) as f:
         geo = json.load(f)
 
-    df_idx = df.set_index(df["nom"].str.strip().str.lower())
-    vmin   = float(df["nb_offres"].min())
-    vmax   = float(df["nb_offres"].max())
+    # Pour les départements en particulier, les libellés peuvent diverger (accents, tirets…).
+    # On privilégie donc l'appariement par code, bien plus robuste.
+    if df is None or df.empty:
+        df_idx_code = None
+        df_idx_name = None
+        vmin = 0.0
+        vmax = 0.0
+    else:
+        df_idx_code = df.set_index(df["code"].astype(str).str.strip().str.upper())
+        df_idx_name = df.set_index(df["nom"].astype(str).str.strip().str.lower())
+        vmin   = float(df["nb_offres"].min())
+        vmax   = float(df["nb_offres"].max())
     r_min  = 8  if is_region else 5
     r_max  = 35 if is_region else 22
 
@@ -91,10 +106,16 @@ def _build_map(geojson_path, df, is_region):
         nom_geo = feat["properties"].get("nom", "")
         nom_key = nom_geo.strip().lower()
         code    = feat["properties"].get("code", "")
+        code_key = str(code).strip().upper()
         lat, lon = _centroid(feat["geometry"]["coordinates"])
 
-        if nom_key in df_idx.index:
-            row     = df_idx.loc[nom_key]
+        row = None
+        if df_idx_code is not None and code_key in df_idx_code.index:
+            row = df_idx_code.loc[code_key]
+        elif df_idx_name is not None and nom_key in df_idx_name.index:
+            row = df_idx_name.loc[nom_key]
+
+        if row is not None:
             if isinstance(row, pd.DataFrame): row = row.iloc[0]
             nb      = int(row["nb_offres"])
             nb_ent  = int(row.get("nb_entreprises", 0))
@@ -106,7 +127,12 @@ def _build_map(geojson_path, df, is_region):
             nb = 0; nb_ent = 0; sal_moy = None; sal_med = None; off30 = 0; nom_reg = ""
 
         radius  = _radius_px(nb, vmin, vmax, r_min, r_max)
-        t       = ((nb - vmin) / (vmax - vmin)) ** 0.5 if vmax > vmin else 0.5
+        if vmax > vmin:
+            ratio = (nb - vmin) / (vmax - vmin)
+            ratio = 0.0 if ratio < 0 else (1.0 if ratio > 1 else ratio)
+            t = ratio ** 0.5
+        else:
+            t = 0.5
         opacity = 0.25 + t * 0.55    # 0.25 → 0.80
         sal_str = fmt_euro(sal_moy)
         nb_fmt  = fmt_number(nb)
@@ -203,7 +229,7 @@ def render(_filters_key: str = ""):
             f' offres &nbsp;·&nbsp; Zone n°1 : '
             f'<span style="color:{TEAL};font-weight:600">{top["nom"]}</span>'
             f' ({fmt_number(int(top["nb_offres"]))} offres)'
-            f'<span style="color:#4a4a52;font-size:0.75rem;margin-left:1rem">',
+            f'</div>',
             unsafe_allow_html=True,
         )
 

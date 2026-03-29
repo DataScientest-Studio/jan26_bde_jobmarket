@@ -52,7 +52,15 @@ def render(filters_key: str):
         duree_val = "—" if duree is None or (isinstance(duree, float) and math.isnan(duree)) else f"{float(duree):.0f} j"
         st.markdown(kpi_card("Durée moy. ouverture", duree_val, "jours entre publication et clôture", GOLD2), unsafe_allow_html=True)
     with c4:
-        st.markdown(kpi_card("Offres pourvues", fmt_number(row.offres_pourvues), "dans les 14 derniers jours", GOLD2), unsafe_allow_html=True)
+        st.markdown(
+            kpi_card(
+                "Offres clôturées / supprimées",
+                fmt_number(row.offres_pourvues),
+                "fermées sur les 14 derniers jours",
+                GOLD2,
+            ),
+            unsafe_allow_html=True,
+        )
 
     # ══════════════════════════════════════════════════════════════════════
     # FLUX DE PUBLICATION
@@ -129,6 +137,24 @@ def render(filters_key: str):
     # RÉPARTITION
     # ══════════════════════════════════════════════════════════════════════
     st.markdown('<div class="section-title">Répartition des offres</div>', unsafe_allow_html=True)
+    hide_non_precise = st.checkbox(
+        "Masquer les valeurs 'Non précisé'",
+        value=True,
+        key="hide_non_precise_repartition",
+    )
+
+    def _is_non_precise(v) -> bool:
+        if v is None:
+            return True
+        s = str(v).strip().lower()
+        return s in {"", "unknown", "non precise", "non précisé", "non renseigne", "non renseigné", "n/a", "na"}
+
+    if hide_non_precise:
+        if not df_ct.empty:
+            df_ct = df_ct[~df_ct["contract_type"].apply(_is_non_precise)]
+        if not df_an.empty:
+            df_an = df_an[~df_an["experience_level"].apply(_is_non_precise)]
+
     col_l, col_r = st.columns(2)
 
     with col_l:
@@ -156,7 +182,7 @@ def render(filters_key: str):
     # ══════════════════════════════════════════════════════════════════════
     # CODES NAF
     # ══════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">Top secteurs par code NAF</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Top secteurs par code NAF - Nombre offres</div>', unsafe_allow_html=True)
 
     naf_col1, naf_col2, naf_col3 = st.columns([3, 2, 2])
     with naf_col1:

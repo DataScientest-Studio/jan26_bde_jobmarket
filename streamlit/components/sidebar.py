@@ -4,7 +4,7 @@ Les filtres sélectionnés sont stockés dans st.session_state["active_filters"]
 """
 import datetime
 import streamlit as st
-from utils.queries import load_filter_options, search_villes, search_rome
+from utils.queries import load_filter_options, search_villes, search_rome, search_entreprises
 
 
 def render_sidebar() -> str:
@@ -183,9 +183,55 @@ def render_sidebar() -> str:
 
         sel_poste = st.text_input(
             "Recherche poste",
-            value="",
+            value=st.session_state.get("poste_search_input", ""),
             placeholder="ex: développeur, comptable…",
+            key="poste_search_input",
         )
+
+        # ── Entreprises ───────────────────────────────────────────────────
+        st.markdown('<div class="sidebar-section">Entreprises</div>', unsafe_allow_html=True)
+        entreprise_search = st.text_input(
+            "Rechercher une entreprise",
+            value=st.session_state.get("entreprise_search_input", ""),
+            placeholder="ex: Air, Total, Orange…",
+            key="entreprise_search_input",
+        )
+
+        entreprise_results = []
+        if len(entreprise_search.strip()) >= 2:
+            entreprise_results = search_entreprises(entreprise_search.strip())
+            if not entreprise_results:
+                st.caption("Aucune entreprise trouvée.")
+
+        if "sel_entreprises" not in st.session_state:
+            st.session_state["sel_entreprises"] = []
+
+        if entreprise_results:
+            st.caption(f"{len(entreprise_results)} entreprise(s) trouvée(s) :")
+            for ent in entreprise_results:
+                already = ent in st.session_state["sel_entreprises"]
+                if st.checkbox(ent, value=already, key=f"entreprise_cb_{ent}"):
+                    if ent not in st.session_state["sel_entreprises"]:
+                        st.session_state["sel_entreprises"].append(ent)
+                else:
+                    if ent in st.session_state["sel_entreprises"]:
+                        st.session_state["sel_entreprises"].remove(ent)
+
+        sel_entreprises = st.session_state["sel_entreprises"]
+        if sel_entreprises:
+            st.caption("Entreprises sélectionnées :")
+            to_remove_ent = []
+            for ent in list(sel_entreprises):
+                col_v, col_x = st.columns([5, 1])
+                col_v.markdown(
+                    f'<span style="font-size:0.78rem;color:#d4a84b">🏢 {ent}</span>',
+                    unsafe_allow_html=True,
+                )
+                if col_x.button("✕", key=f"rm_ent_{ent}", help=f"Retirer {ent}"):
+                    to_remove_ent.append(ent)
+            for ent in to_remove_ent:
+                st.session_state["sel_entreprises"].remove(ent)
+                st.rerun()
 
         # ── Contrat ───────────────────────────────────────────────────────
         st.markdown('<div class="sidebar-section">Contrat</div>', unsafe_allow_html=True)
@@ -230,6 +276,7 @@ def render_sidebar() -> str:
             st.session_state["active_filters"] = {}
             st.session_state["sel_villes"] = []
             st.session_state["sel_secteurs"] = []
+            st.session_state["sel_entreprises"] = []
             st.rerun()
 
         # ── Résumé des filtres actifs ─────────────────────────────────────
@@ -238,6 +285,7 @@ def render_sidebar() -> str:
             "departements": sel_departements,
             "villes":       sel_villes,
             "secteurs":     sel_secteurs,
+            "entreprises":  sel_entreprises,
             "postes":       sel_poste.strip(),
             "contrats":     sel_contrats,
             "date_debut":   str(date_debut) if date_debut else None,
@@ -251,6 +299,7 @@ def render_sidebar() -> str:
             len(sel_departements),
             len(sel_villes),
             len(sel_secteurs),
+            len(sel_entreprises),
             1 if sel_poste.strip() else 0,
             len(sel_contrats),
             1 if date_debut else 0,
