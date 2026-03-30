@@ -255,8 +255,8 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeRes
                         experience_description="",
                         naf_code="",
                         job_city="",
-                        job_postal_code="",
-                        company_name=normalize_text(job_data.get("company_summary", "")).upper(),
+                        job_postal_code=normalize_text((job_data.get("office") or {}).get("zip_code") or ""),
+                        company_name=normalize_text((job_data.get("organization") or {}).get("name") or "").upper(),
                         company_city="",
                         company_postal_code="",
                         company_url="",
@@ -388,6 +388,9 @@ def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> Normalize
 
     dates_bronze = [v.replace('dt=', '').replace('/', '') for v in all_dt_bronze if 'dt=' in v]
     sorted_dates_bronze = sorted(dates_bronze)
+
+    # To debug
+    #sorted_dates_bronze = ["debug"]
 
     logger.info(f"📂 Storage: silver")
     # List all objects in the storage
