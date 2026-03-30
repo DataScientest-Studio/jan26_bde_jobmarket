@@ -514,9 +514,17 @@ def replay_merge_from_key(merged_key: str, output_format: Optional[str] = None) 
 
 def main():
 
-    ret= replay_merge_from_key("merged_dt=2026-03-05_ft_dt=2026-03-03_wttj_dt=2026-03-05.parquet")
-    ret= replay_merge_from_key("merged_dt=2026-03-07_ft_dt=2026-03-07_wttj_dt=2026-03-07.parquet")
-    ret= replay_merge_from_key("merged_dt=2026-03-10_ft_dt=2026-03-09_wttj_dt=2026-03-09.parquet")
+    #ret= replay_merge_from_key("merged_dt=2026-03-04_ft_dt=2026-03-04_wttj_dt=2026-03-04.parquet")
+    #ret= replay_merge_from_key("merged_dt=2026-03-07_ft_dt=2026-03-07_wttj_dt=2026-03-07.parquet")
+    #ret= replay_merge_from_key("merged_dt=2026-03-09_ft_dt=2026-03-09_wttj_dt=2026-03-09.parquet")
+    #ret= replay_merge_from_key("merged_dt=2026-03-11_ft_dt=2026-03-11_wttj_dt=2026-03-11.parquet")
+    #ret= replay_merge_from_key("merged_dt=2026-03-14_ft_dt=2026-03-14_wttj_dt=2026-03-14.parquet")    
+    
+    ret= replay_merge_from_key("merged_dt=2026-03-16_ft_dt=2026-03-16_wttj_dt=2026-03-16.parquet")
+    ret= replay_merge_from_key("merged_dt=2026-03-18_ft_dt=2026-03-18_wttj_dt=2026-03-18.parquet")
+    ret= replay_merge_from_key("merged_dt=2026-03-23_ft_dt=2026-03-23_wttj_dt=2026-03-23.parquet")        
+    ret= replay_merge_from_key("merged_dt=2026-03-25_ft_dt=2026-03-25_wttj_dt=2026-03-25.parquet")            
+    ret= replay_merge_from_key("merged_dt=2026-03-30_ft_dt=2026-03-30_wttj_dt=2026-03-30.parquet")        
 
     exit(0)
 
