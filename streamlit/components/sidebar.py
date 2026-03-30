@@ -69,6 +69,16 @@ def render_sidebar() -> str:
             placeholder="Tous les départements",
         )
 
+        # ── Tri (offres vs salaire moyen) ────────────────────────────────
+        st.markdown('<div class="sidebar-section">Tri</div>', unsafe_allow_html=True)
+        tri_offres_vs_salaire = st.radio(
+            "Trier par",
+            options=["Nombre d'offres", "Salaire moyen"],
+            index=0,
+            horizontal=True,
+            key="tri_offres_vs_salaire",
+        )
+
         # ── Recherche ville dynamique ──────────────────────────────────
         ville_search = st.text_input(
             "Rechercher une ville",
@@ -290,6 +300,7 @@ def render_sidebar() -> str:
             "contrats":     sel_contrats,
             "date_debut":   str(date_debut) if date_debut else None,
             "date_fin":     str(date_fin) if date_fin else None,
+            "tri_offres_vs_salaire": tri_offres_vs_salaire,
         }
         st.session_state["active_filters"] = active_filters
 
