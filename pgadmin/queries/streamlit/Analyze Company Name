@@ -1,6 +1,8 @@
 select company_name ,count(*) from gold.dim_company 
 join gold.fact_offre_emploi on gold.fact_offre_emploi.company_key = gold.dim_company.company_key 
-where company_name != 'UNKNOWN'
+where company_name != 'UNKNOWN' 
+-- and company_name ILIKE '%group%'
+and gold.fact_offre_emploi.status='published' 
 group by company_name
 order by count(*) desc
-limit 1000;
+limit 100;
