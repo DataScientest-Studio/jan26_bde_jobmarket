@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import re
 
-from utils.queries import load_regions, load_departements, load_top_villes
+from utils.queries import load_regions, load_departements, load_top_villes, load_nb_offres_salaire_renseigne
 from utils.helpers import kpi_card, base_layout, fmt_number, fmt_euro
 from config import TEAL, PURPLE
 
@@ -70,18 +70,30 @@ def render(filters_key: str):
         df_reg  = load_regions(filters_key)
         df_dep  = load_departements(filters_key)
         df_vill = load_top_villes(filters_key)
+        nb_offres_salaire_df = load_nb_offres_salaire_renseigne(filters_key)
+        nb_offres_salaire = (
+            int(nb_offres_salaire_df.iloc[0]["nb_offres_salaire_renseigne"])
+            if nb_offres_salaire_df is not None and not nb_offres_salaire_df.empty
+            else 0
+        )
+
+    tri_mode = st.session_state.get("tri_offres_vs_salaire", "Nombre d'offres")
+
+    # KPI — volume d'offres avec salaire renseigné (min/max calculés).
+    st.markdown(
+        kpi_card(
+            "Offres avec salaire renseigné",
+            fmt_number(nb_offres_salaire),
+            "min/max calculés",
+            TEAL,
+        ),
+        unsafe_allow_html=True,
+    )
 
     # ── Par région ─────────────────────────────────────────────────────────
     st.markdown('<div class="section-title">Par région</div>', unsafe_allow_html=True)
-    tri_reg = st.radio(
-        "Tri (régions)",
-        options=["Nombre d'offres", "Salaire moyen"],
-        horizontal=True,
-        key="tri_geo_regions",
-    )
-
     if not df_reg.empty:
-        if tri_reg == "Salaire moyen":
+        if tri_mode == "Salaire moyen":
             df_reg = df_reg.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False], na_position="last")
         else:
             df_reg = df_reg.sort_values(["nb_offres", "salaire_moyen"], ascending=[False, False], na_position="last")
@@ -127,15 +139,9 @@ def render(filters_key: str):
 
     # ── Top 20 départements ────────────────────────────────────────────────
     st.markdown('<div class="section-title">Top 20 départements</div>', unsafe_allow_html=True)
-    tri_dep = st.radio(
-        "Tri (départements)",
-        options=["Nombre d'offres", "Salaire moyen"],
-        horizontal=True,
-        key="tri_geo_departements",
-    )
 
     if not df_dep.empty:
-        if tri_dep == "Salaire moyen":
+        if tri_mode == "Salaire moyen":
             df_dep = df_dep.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False], na_position="last")
         else:
             df_dep = df_dep.sort_values(["nb_offres", "salaire_moyen"], ascending=[False, False], na_position="last")
@@ -182,12 +188,6 @@ def render(filters_key: str):
 
     # ── Top 20 villes ──────────────────────────────────────────────────────
     st.markdown('<div class="section-title">Top 20 villes</div>', unsafe_allow_html=True)
-    tri_villes = st.radio(
-        "Tri (villes)",
-        options=["Nombre d'offres", "Salaire moyen"],
-        horizontal=True,
-        key="tri_geo_villes",
-    )
 
     if not df_vill.empty:
         show_unknown = st.checkbox(
@@ -254,7 +254,7 @@ def render(filters_key: str):
 
             df_vill = pd.DataFrame(grouped_rows)
 
-        if tri_villes == "Salaire moyen":
+        if tri_mode == "Salaire moyen":
             df_vill = df_vill.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False], na_position="last")
         else:
             df_vill = df_vill.sort_values(["nb_offres", "salaire_moyen"], ascending=[False, False], na_position="last")

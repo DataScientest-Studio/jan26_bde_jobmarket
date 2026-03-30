@@ -41,30 +41,9 @@ def render(filters_key: str):
         st.info("Aucune entreprise identifiée avec les filtres actuels.")
         return
 
-    tri_entreprises = st.selectbox(
-        "Trier les entreprises par",
-        options=[
-            "Volume d'offres décroissant",
-            "Volume d'offres croissant",
-            "Salaire moyen décroissant",
-            "Salaire moyen croissant",
-            "Nom (A → Z)",
-            "Nom (Z → A)",
-        ],
-        index=0,
-        key="tri_entreprises_tab",
-    )
-
-    if tri_entreprises == "Volume d'offres croissant":
-        df = df.sort_values(["nb_offres", "entreprise"], ascending=[True, True])
-    elif tri_entreprises == "Salaire moyen décroissant":
+    tri_mode = st.session_state.get("tri_offres_vs_salaire", "Nombre d'offres")
+    if tri_mode == "Salaire moyen":
         df = df.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False], na_position="last")
-    elif tri_entreprises == "Salaire moyen croissant":
-        df = df.sort_values(["salaire_moyen", "nb_offres"], ascending=[True, False], na_position="last")
-    elif tri_entreprises == "Nom (A → Z)":
-        df = df.sort_values("entreprise", ascending=True)
-    elif tri_entreprises == "Nom (Z → A)":
-        df = df.sort_values("entreprise", ascending=False)
     else:
         df = df.sort_values(["nb_offres", "entreprise"], ascending=[False, True])
 

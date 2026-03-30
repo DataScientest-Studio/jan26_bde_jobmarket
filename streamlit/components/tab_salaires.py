@@ -9,8 +9,9 @@ from utils.queries import (
     load_salaires_distrib,
     load_salaires_par_contrat,
     load_salaires_par_rome,
+    load_nb_offres_salaire_renseigne,
 )
-from utils.helpers import kpi_card, base_layout, fmt_euro
+from utils.helpers import kpi_card, base_layout, fmt_euro, fmt_number
 from config import GOLD, TEAL, CORAL, PURPLE, DARK_BG, GRID_COL, TEXT_COL
 
 
@@ -61,6 +62,16 @@ def render(filters_key: str):
         df_distrib  = load_salaires_distrib(filters_key)
         df_sal_ct   = load_salaires_par_contrat(filters_key)
         df_sal_rome = load_salaires_par_rome(filters_key)
+        nb_offres_salaire_df = load_nb_offres_salaire_renseigne(filters_key)
+        nb_offres_salaire = (
+            int(nb_offres_salaire_df.iloc[0]["nb_offres_salaire_renseigne"])
+            if nb_offres_salaire_df is not None and not nb_offres_salaire_df.empty
+            else 0
+        )
+
+    tri_mode = st.session_state.get("tri_offres_vs_salaire", "Nombre d'offres")
+
+
 
     # ── KPIs salaires ──────────────────────────────────────────────────────
     if not df_distrib.empty:
@@ -78,6 +89,18 @@ def render(filters_key: str):
             st.markdown(kpi_card("1er quartile (P25)",  fmt_euro(p25_sal),    "25% des offres en dessous", CORAL),  unsafe_allow_html=True)
         with c4:
             st.markdown(kpi_card("3ème quartile (P75)", fmt_euro(p75_sal),    "75% des offres en dessous", PURPLE), unsafe_allow_html=True)
+
+    # ── KPI volume d'offres avec salaire renseigné ────────────────────────
+    st.markdown("<div style='margin-top:1rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        kpi_card(
+            "Offres avec salaire renseigné",
+            fmt_number(nb_offres_salaire),
+            "min/max calculés",
+            TEAL,
+        ),
+        unsafe_allow_html=True,
+    )
 
     # ── Distribution ───────────────────────────────────────────────────────
     st.markdown('<div class="section-title">Distribution des salaires</div>', unsafe_allow_html=True)
@@ -141,15 +164,8 @@ def render(filters_key: str):
 
     # ── Top ROME par salaire ───────────────────────────────────────────────
     st.markdown('<div class="section-title">Top 20 métiers (ROME) par salaire moyen</div>', unsafe_allow_html=True)
-    tri_rome = st.radio(
-        "Tri (ROME)",
-        options=["Nombre d'offres", "Salaire moyen"],
-        horizontal=True,
-        key="tri_salaires_rome",
-    )
-
     if not df_sal_rome.empty:
-        if tri_rome == "Salaire moyen":
+        if tri_mode == "Salaire moyen":
             df_sal_rome = df_sal_rome.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False])
         else:
             df_sal_rome = df_sal_rome.sort_values(["nb_offres", "salaire_moyen"], ascending=[False, False])

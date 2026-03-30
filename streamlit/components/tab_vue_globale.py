@@ -7,11 +7,11 @@ import pandas as pd
 
 from utils.queries import (
     load_kpi_global,
-    load_contrats,
-    load_anciennete,
+    load_contrats_salaire_stats,
+    load_anciennete_salaire_stats,
     load_offres_par_jour,
     load_offres_par_semaine,
-    load_naf_par_region,
+    load_naf_par_region_salaire_stats,
     load_regions_list,
 )
 from utils.helpers import kpi_card, base_layout, fmt_number, fmt_euro
@@ -21,20 +21,20 @@ from config import GOLD, GOLD2, TEAL, CORAL, PURPLE, DARK_BG, GRID_COL, TEXT_COL
 def render(filters_key: str):
     with st.spinner("Chargement…"):
         kpi   = load_kpi_global(filters_key)
-        df_ct = load_contrats(filters_key)
-        df_an = load_anciennete(filters_key)
+        df_ct = load_contrats_salaire_stats(filters_key)
+        df_an = load_anciennete_salaire_stats(filters_key)
 
     row = kpi.iloc[0]
 
     # ── KPI row 1 ──────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(kpi_card("Total offres", fmt_number(row.total_offres), "toutes sources", GOLD), unsafe_allow_html=True)
-    with c2:
+        st.markdown(kpi_card("Total offres actives et clôturées", fmt_number(row.total_offres), "toutes sources", GOLD), unsafe_allow_html=True)
+    with c4:
         st.markdown(kpi_card("Salaire moyen", fmt_euro(row.salaire_moyen), "brut annuel estimé", TEAL), unsafe_allow_html=True)
     with c3:
         st.markdown(kpi_card("Entreprises", fmt_number(row.nb_entreprises), "recruteurs distincts", CORAL), unsafe_allow_html=True)
-    with c4:
+    with c2:
         st.markdown(kpi_card("Offres actives", fmt_number(row.offres_actives), "statut = active", PURPLE), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:1rem'></div>", unsafe_allow_html=True)
@@ -61,6 +61,7 @@ def render(filters_key: str):
             ),
             unsafe_allow_html=True,
         )
+
 
     # ══════════════════════════════════════════════════════════════════════
     # FLUX DE PUBLICATION
@@ -137,6 +138,64 @@ def render(filters_key: str):
     # RÉPARTITION
     # ══════════════════════════════════════════════════════════════════════
     st.markdown('<div class="section-title">Répartition des offres</div>', unsafe_allow_html=True)
+
+    def _add_candles(fig: go.Figure, df: pd.DataFrame, y_col: str, xaxis: str = "x2") -> go.Figure:
+        """Ajoute des bougies salaires (P25-P75 + médiane + min-max)."""
+        required = ("salaire_min", "salaire_p25", "salaire_moyen", "salaire_p75", "salaire_max")
+        if not df.empty and all(c in df.columns for c in required):
+            d = df.copy()
+        else:
+            return fig
+
+        # Barres d'erreur min→max
+        line_mask = d["salaire_min"].notna() & d["salaire_max"].notna()
+        d_line = d[line_mask]
+        for _, row in d_line.iterrows():
+            fig.add_trace(go.Scatter(
+                x=[row["salaire_min"], row["salaire_max"]],
+                y=[row[y_col], row[y_col]],
+                mode="lines",
+                line=dict(color="rgba(212,168,75,0.40)", width=0.8),
+                xaxis=xaxis,
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+        # Corps de la bougie (P25 → P75)
+        bar_mask = d["salaire_p25"].notna() & d["salaire_p75"].notna()
+        d_bar = d[bar_mask]
+        if not d_bar.empty:
+            fig.add_trace(go.Bar(
+                x=(d_bar["salaire_p75"] - d_bar["salaire_p25"]).clip(lower=0),
+                y=d_bar[y_col],
+                orientation="h",
+                base=d_bar["salaire_p25"],
+                marker=dict(color="rgba(212,168,75,0.45)", line=dict(color="#d4a84b", width=0.8)),
+                xaxis=xaxis,
+                name="Sal. p25–p75",
+                customdata=d_bar["salaire_p75"],
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    "p25 : %{base:,.0f} €<br>"
+                    "p75 : %{customdata:,.0f} €<extra></extra>"
+                ),
+            ))
+
+        # Marqueur médiane / moyenne
+        moy_mask = d["salaire_moyen"].notna()
+        d_moy = d[moy_mask]
+        if not d_moy.empty:
+            fig.add_trace(go.Scatter(
+                x=d_moy["salaire_moyen"],
+                y=d_moy[y_col],
+                mode="markers",
+                marker=dict(color="#d4a84b", size=7, symbol="diamond"),
+                xaxis=xaxis,
+                name="Sal. moyen",
+                hovertemplate="<b>%{y}</b><br>Sal. moyen : %{x:,.0f} €<extra></extra>",
+            ))
+
+        return fig
     hide_non_precise = st.checkbox(
         "Masquer les valeurs 'Non précisé'",
         value=True,
@@ -161,10 +220,25 @@ def render(filters_key: str):
         if not df_ct.empty:
             fig_ct = go.Figure(go.Bar(
                 x=df_ct["nb"], y=df_ct["contract_type"], orientation="h",
-                marker=dict(color=df_ct["nb"], colorscale=[[0, "#2a2410"], [1, GOLD]], showscale=False),
+                marker=dict(color=df_ct["nb"], 
+                            colorscale=[[0, "#2a2410"], [1, PURPLE]], 
+                            showscale=False),
                 hovertemplate="<b>%{y}</b><br>%{x:,} offres<extra></extra>",
             ))
-            fig_ct.update_layout(**base_layout("Par type de contrat"), height=320)
+            fig_ct = _add_candles(fig_ct, df_ct, y_col="contract_type", xaxis="x2")
+
+            layout_ct = base_layout("Par type de contrat")
+            layout_ct.update(
+                height=320,
+                barmode="overlay",
+                xaxis2=dict(
+                    title="Salaire (€)",
+                    overlaying="x",
+                    side="top",
+                    showgrid=False,
+                ),
+            )
+            fig_ct.update_layout(**layout_ct)
             fig_ct.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_ct, use_container_width=True)
 
@@ -172,10 +246,23 @@ def render(filters_key: str):
         if not df_an.empty:
             fig_an = go.Figure(go.Bar(
                 x=df_an["nb"], y=df_an["experience_level"], orientation="h",
-                marker=dict(color=df_an["nb"], colorscale=[[0, "#2a1a10"], [1, CORAL]], showscale=False),
+                marker=dict(color=df_an["nb"], colorscale=[[0, "#2a1a10"], [1, PURPLE]], showscale=False),
                 hovertemplate="<b>%{y}</b><br>%{x:,} offres<extra></extra>",
             ))
-            fig_an.update_layout(**base_layout("Par niveau d'expérience"), height=320)
+            fig_an = _add_candles(fig_an, df_an, y_col="experience_level", xaxis="x2")
+
+            layout_an = base_layout("Par niveau d'expérience")
+            layout_an.update(
+                height=320,
+                barmode="overlay",
+                xaxis2=dict(
+                    title="Salaire (€)",
+                    overlaying="x",
+                    side="top",
+                    showgrid=False,
+                ),
+            )
+            fig_an.update_layout(**layout_an)
             fig_an.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_an, use_container_width=True)
 
@@ -191,26 +278,31 @@ def render(filters_key: str):
     with naf_col2:
         top_n = st.select_slider("Nombre de secteurs", options=[10, 15, 20, 30, 50], value=20, key="naf_top_n")
     with naf_col3:
-        naf_metric = st.radio("Métrique", options=["Nb offres", "Salaire moyen"], horizontal=True, key="naf_metric")
+        tri_mode = st.session_state.get("tri_offres_vs_salaire", "Nombre d'offres")
 
     with st.spinner("Chargement NAF…"):
-        df_naf = load_naf_par_region(
+        df_naf = load_naf_par_region_salaire_stats(
             region=sel_region_naf if sel_region_naf != "Toutes" else "",
             top_n=top_n,
             filters_key=filters_key + sel_region_naf + str(top_n),
         )
 
     if not df_naf.empty:
-        use_salary = naf_metric == "Salaire moyen"
+        # Ré-ordonne selon la métrique choisie dans la sidebar,
+        # mais le graphique NAF reste "Nombre d'offres" + bougies salaire.
+        if tri_mode == "Salaire moyen":
+            df_naf = df_naf.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False], na_position="last")
+        else:
+            df_naf = df_naf.sort_values(["nb_offres", "salaire_moyen"], ascending=[False, False], na_position="last")
         df_naf["label"] = df_naf.apply(
             lambda r: f"{r['naf_code']} — {str(r['naf_label'])[:42]}{'…' if len(str(r['naf_label'])) > 42 else ''}",
             axis=1,
         )
-        x_vals    = df_naf["salaire_moyen"].fillna(0) if use_salary else df_naf["nb_offres"]
-        color_max = TEAL if use_salary else GOLD
-        color_min = "#1a2a28" if use_salary else "#2a2410"
-        x_title   = "€ brut / an" if use_salary else "Nombre d'offres"
-        titre_naf = f"Salaire moyen par code NAF — {sel_region_naf}" if use_salary else f"Top {top_n} codes NAF — {sel_region_naf}"
+        x_vals    = df_naf["nb_offres"]
+        color_max = GOLD
+        color_min = "#2a2410"
+        x_title   = "Nombre d'offres"
+        titre_naf = f"Top {top_n} codes NAF — {sel_region_naf}"
 
         fig_naf = go.Figure(go.Bar(
             x=x_vals, y=df_naf["label"], orientation="h",
@@ -221,9 +313,19 @@ def render(filters_key: str):
         layout_naf = base_layout(titre_naf)
         layout_naf.update(dict(
             height=max(320, len(df_naf) * 28 + 60),
-            xaxis=dict(**layout_naf.get("xaxis", {}), title_text=x_title, tickformat=",.0f" if use_salary else ","),
+            xaxis=dict(**layout_naf.get("xaxis", {}), title_text=x_title, tickformat=","),
+        ))
+        layout_naf.update(dict(
+            barmode="overlay",
+            xaxis2=dict(
+                title="Salaire annuel (€)",
+                overlaying="x",
+                side="top",
+                showgrid=False,
+            ),
         ))
         fig_naf.update_layout(**layout_naf)
+        fig_naf = _add_candles(fig_naf, df_naf, y_col="label", xaxis="x2")
         fig_naf.update_yaxes(autorange="reversed", tickfont=dict(size=11))
         st.plotly_chart(fig_naf, use_container_width=True)
     else:
