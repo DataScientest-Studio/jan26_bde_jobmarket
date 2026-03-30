@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS gold.stg_offer (
     updated_at TIMESTAMPTZ,
     unpublished_at TIMESTAMPTZ,
     rome_code TEXT,
-    rome_label TEXT,
     contract_normalized TEXT,
     contract_detail TEXT,
     contract_type TEXT,
