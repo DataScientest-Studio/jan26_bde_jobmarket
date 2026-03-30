@@ -60,8 +60,8 @@ from logging.handlers import RotatingFileHandler
 from src.models.predict_model import build_text_payload, load_artifacts, predict_top_k, get_rome_model
 
 # Ingestion modules
-from src.ingest.silver.normalize_wttj_jobs import normalize_wttj_jobs
-from src.ingest.silver.normalize_ft_jobs import normalize_ft_jobs
+from src.ingest.silver.normalize_wttj_jobs import normalize_wttj_jobs, normalize_wttj_jobs_incremental
+from src.ingest.silver.normalize_ft_jobs import normalize_ft_jobs, normalize_ft_jobs_incremental
 from src.ingest.bronze.ingest_france_travail_rome_metiers import ingest_rome_metiers
 from src.ingest.bronze.ingest_france_travail_jobs import ingest_france_travail_offers
 from src.ingest.bronze.ingest_wttj_jobs import ingest_welcome_to_the_jungle
@@ -583,6 +583,92 @@ def run_normalize_ft_task(task_id: str, dt: Optional[str], output_format: str) -
             completed_at=datetime.now(timezone.utc),
             error=error_text,
         )
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
+def run_normalize_wttj_incremental_task(task_id: str) -> None:
+    """Background wrapper for incremental WTTJ normalization with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        result = normalize_wttj_jobs_incremental()
+        duration_sec = time.monotonic() - start_monotonic
+        if result.status in (STATUS_SUCCESS, "NO_NEW_DATA"):
+            result_payload = {
+                "dt": result.dt,
+                "files": result.files,
+                "errors": result.errors,
+                "duration_sec": round(duration_sec, 2),
+            }
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="wttj", duration_seconds=duration_sec, status=1, rows=result.rows, errors=result.errors)
+            set_task(
+                task_id,
+                progress_pct=100,
+                message=f"WTTJ incremental normalization completed ({result.status})",
+                records_count=result.rows,
+                errors_count=result.errors,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+        else:
+            error_text = f"WTTJ incremental normalization failed: {result.status}"
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="wttj", duration_seconds=duration_sec, status=0)
+            set_task(task_id, message=error_text, status=STATUS_FAILED,
+                     completed_at=datetime.now(timezone.utc), errors_count=result.errors, error=error_text)
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="wttj", duration_seconds=duration_sec, status=0)
+        set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
+                 completed_at=datetime.now(timezone.utc), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
+def run_normalize_ft_incremental_task(task_id: str) -> None:
+    """Background wrapper for incremental FT normalization with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        result = normalize_ft_jobs_incremental()
+        duration_sec = time.monotonic() - start_monotonic
+        if result.status in (STATUS_SUCCESS, "NO_NEW_DATA"):
+            result_payload = {
+                "dt": result.dt,
+                "files": result.files,
+                "errors": result.errors,
+                "duration_sec": round(duration_sec, 2),
+            }
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="france_travail", duration_seconds=duration_sec, status=1, rows=result.rows, errors=result.errors)
+            set_task(
+                task_id,
+                progress_pct=100,
+                message=f"FT incremental normalization completed ({result.status})",
+                records_count=result.rows,
+                errors_count=result.errors,
+                status=STATUS_SUCCESS,
+                completed_at=datetime.now(timezone.utc),
+                result=result_payload,
+            )
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+        else:
+            error_text = f"FT incremental normalization failed: {result.status}"
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="france_travail", duration_seconds=duration_sec, status=0)
+            set_task(task_id, message=error_text, status=STATUS_FAILED,
+                     completed_at=datetime.now(timezone.utc), errors_count=result.errors, error=error_text)
+            if job_store.enabled:
+                job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="france_travail", duration_seconds=duration_sec, status=0)
+        set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
+                 completed_at=datetime.now(timezone.utc), error=error_text)
         if job_store.enabled:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
 
@@ -2705,6 +2791,90 @@ def normalize_ft_jobs_endpoint(
         except Exception as e:
             _safe_finish_task(task_id, STATUS_FAILED)
             raise HTTPException(status_code=500, detail=f"FT normalization error: {str(e)}")
+
+
+@app.post(
+    "/data/normalize-wttj-jobs-incremental",
+    response_model=NormalizeWTTJResponse,
+    tags=["Transformation"],
+    summary="Normalize WTTJ bronze jobs incrementally (dates manquantes uniquement)",
+    description="Détecte les dates présentes en bronze WTTJ mais absentes en silver et les normalise. Sans paramètre — la sélection des dates est automatique."
+)
+def normalize_wttj_jobs_incremental_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    task_id = utc_run_id()
+    task_check_and_register("normalize_wttj_jobs", task_id, {
+        "operation": "normalize_wttj_jobs_incremental",
+        "status": STATUS_RUNNING,
+        "started_at": datetime.now(timezone.utc),
+        "progress_pct": 0,
+        "message": "WTTJ incremental normalization in progress...",
+        "params": {},
+    })
+    if job_store.enabled:
+        job_store.create(run_id=task_id, job_type="data", source="normalize_wttj_jobs",
+                         params={"incremental": True}, message="WTTJ incremental normalization in progress...")
+    if background:
+        background_tasks.add_task(run_normalize_wttj_incremental_task, task_id)
+        return NormalizeWTTJResponse(job_id=task_id, status="RUNNING", dt=None, format="parquet", files=[], errors=0,
+                                     success=True, message=f"WTTJ incremental normalization started in background (task_id: {task_id})", task_id=task_id)
+    else:
+        try:
+            r = normalize_wttj_jobs_incremental()
+            _safe_finish_task(task_id, STATUS_SUCCESS if r.status in (STATUS_SUCCESS, "NO_NEW_DATA") else STATUS_FAILED)
+            return NormalizeWTTJResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files,
+                                         errors=r.errors, success=True, message=f"WTTJ incremental normalization {r.status}",
+                                         records_count=r.rows)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
+        except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise HTTPException(status_code=500, detail=f"WTTJ incremental normalization error: {str(e)}")
+
+
+@app.post(
+    "/data/normalize-ft-jobs-incremental",
+    response_model=NormalizeFTResponse,
+    tags=["Transformation"],
+    summary="Normalize FT bronze jobs incrementally (dates manquantes uniquement)",
+    description="Détecte les dates présentes en bronze FT mais absentes en silver et les normalise. Sans paramètre — la sélection des dates est automatique."
+)
+def normalize_ft_jobs_incremental_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    task_id = utc_run_id()
+    task_check_and_register("normalize_ft_jobs", task_id, {
+        "operation": "normalize_ft_jobs_incremental",
+        "status": STATUS_RUNNING,
+        "started_at": datetime.now(timezone.utc),
+        "progress_pct": 0,
+        "message": "FT incremental normalization in progress...",
+        "params": {},
+    })
+    if job_store.enabled:
+        job_store.create(run_id=task_id, job_type="data", source="normalize_ft_jobs",
+                         params={"incremental": True}, message="FT incremental normalization in progress...")
+    if background:
+        background_tasks.add_task(run_normalize_ft_incremental_task, task_id)
+        return NormalizeFTResponse(job_id=task_id, status="RUNNING", dt=None, format="parquet", files=[], errors=0,
+                                   success=True, message=f"FT incremental normalization started in background (task_id: {task_id})", task_id=task_id)
+    else:
+        try:
+            r = normalize_ft_jobs_incremental()
+            _safe_finish_task(task_id, STATUS_SUCCESS if r.status in (STATUS_SUCCESS, "NO_NEW_DATA") else STATUS_FAILED)
+            return NormalizeFTResponse(job_id=r.job_id, status=r.status, dt=r.dt, format=r.format, files=r.files,
+                                       errors=r.errors, success=True, message=f"FT incremental normalization {r.status}",
+                                       records_count=r.rows)
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
+        except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise HTTPException(status_code=500, detail=f"FT incremental normalization error: {str(e)}")
 
 
 @app.post(
