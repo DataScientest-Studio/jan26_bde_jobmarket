@@ -72,6 +72,7 @@ from src.ingest.silver.calculate_offer_status import run_status_tracking
 from src.ingest.silver.generate_status_evolution_datasets import run_status_evolution_parquet_generation, run_daily_reconstruction
 from src.ingest.gold.load_geo_dim import load_geo_dim
 from src.ingest.gold.load_naf_dim import load_naf_dim
+from src.ingest.gold.load_rome_dim import load_rome_dim
 from src.ingest.gold.load_star_schema import run_loader as run_star_schema_loader
 
 # Observability & utilities
@@ -1802,6 +1803,42 @@ def run_load_naf_dim_task(task_id: str) -> None:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
 
 
+def run_load_rome_dim_task(task_id: str) -> None:
+    """Background wrapper for gold.dim_code_rome upsert with task tracking."""
+    start_monotonic = time.monotonic()
+    try:
+        log_to_db('load_rome_dim', 'INFO', "Starting dim_code_rome upsert", task_id=task_id)
+        result = load_rome_dim()
+        duration_sec = time.monotonic() - start_monotonic
+        result_payload = {"upserted": result["upserted"], "duration_sec": round(duration_sec, 2)}
+        set_task(
+            task_id,
+            progress_pct=100,
+            message=f"dim_code_rome upserted: {result['upserted']:,} rows",
+            records_count=result["upserted"],
+            errors_count=0,
+            status=STATUS_SUCCESS,
+            completed_at=datetime.now(timezone.utc),
+            result=result_payload,
+        )
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="rome_dim", duration_seconds=duration_sec, status=1, rows=result["upserted"])
+        log_to_db('load_rome_dim', 'INFO', f"dim_code_rome upserted: {result['upserted']:,} rows in {duration_sec:.2f}s",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), records_count=result["upserted"])
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
+    except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
+        error_text = str(e)
+        logger.error(f"run_load_rome_dim_task failed: {error_text}", exc_info=True)
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="rome_dim", duration_seconds=duration_sec, status=0)
+        set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
+                 completed_at=datetime.now(timezone.utc), error=error_text)
+        log_to_db('load_rome_dim', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
+                  task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
+        if job_store.enabled:
+            job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
+
+
 def run_load_star_schema_task(task_id: str, source_mode: str, incremental: bool) -> None:
     """Background wrapper for gold star schema load (fact + dimensions) with task tracking."""
     start_monotonic = time.monotonic()
@@ -3045,6 +3082,63 @@ async def load_naf_dim_endpoint(
             _safe_finish_task(task_id, STATUS_FAILED)
             logger.error(f"load_naf_dim error: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"load_naf_dim error: {str(e)}")
+
+
+@app.post(
+    "/gold/load-rome-dim",
+    response_model=DimLoadResponse,
+    tags=["Load"],
+    summary="Upsert gold.dim_code_rome from France Travail ROME JSONL",
+    description="""Loads the ROME occupation code dimension table into the gold star schema.
+
+Reads `rome/rome_metiers.jsonl` from `bronze/france_travail` (MinIO/S3)
+and upserts into `gold.dim_code_rome`.
+
+**~1 584 codes ROME** — idempotent (ON CONFLICT DO UPDATE).
+"""
+)
+async def load_rome_dim_endpoint(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(default=True, description="Run task in background"),
+):
+    logger.info(f"load_rome_dim request (background={background})")
+    if background:
+        task_id = utc_run_id()
+        task_check_and_register("load_rome_dim", task_id, {
+            "operation": "load_rome_dim",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "progress_pct": 0,
+            "message": "dim_code_rome upsert in progress...",
+            "params": {},
+        })
+        if job_store.enabled:
+            job_store.create(run_id=task_id, job_type="data", source="load_rome_dim",
+                             params={"background": True}, message="dim_code_rome upsert in progress...")
+        background_tasks.add_task(run_load_rome_dim_task, task_id)
+        return DimLoadResponse(success=True, message=f"dim_code_rome upsert started in background (task_id: {task_id})")
+    else:
+        task_id = utc_run_id()
+        task_check_and_register("load_rome_dim", task_id, {
+            "operation": "load_rome_dim",
+            "status": STATUS_RUNNING,
+            "started_at": datetime.now(timezone.utc),
+            "background": False,
+        })
+        try:
+            start = time.monotonic()
+            result = load_rome_dim()
+            _safe_finish_task(task_id, STATUS_SUCCESS)
+            return DimLoadResponse(success=True, message=f"dim_code_rome upserted: {result['upserted']:,} rows",
+                                   upserted=result["upserted"], elapsed_sec=round(time.monotonic() - start, 2),
+                                   records_count=result["upserted"])
+        except HTTPException:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            raise
+        except Exception as e:
+            _safe_finish_task(task_id, STATUS_FAILED)
+            logger.error(f"load_rome_dim error: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"load_rome_dim error: {str(e)}")
 
 
 @app.post(
