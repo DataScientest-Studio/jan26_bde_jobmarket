@@ -116,7 +116,11 @@ def push_pipeline_metrics(
             registry=registry,
         )
         for offer_source, counts in status_counts.items():
+            if not isinstance(counts, dict):
+                continue
             for status_label, count in counts.items():
+                if not isinstance(count, (int, float)):
+                    continue
                 status_gauge.labels(stage=stage, offer_source=offer_source, status=status_label).set(count)
 
     try:
