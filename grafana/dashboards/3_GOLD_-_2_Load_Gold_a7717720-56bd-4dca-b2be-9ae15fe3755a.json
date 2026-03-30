@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 45,
+  "id": 129,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -162,6 +162,6 @@
   "timezone": "",
   "title": "3.GOLD - 2.Load Gold",
   "uid": "a7717720-56bd-4dca-b2be-9ae15fe3755a",
-  "version": 3,
+  "version": 1,
   "weekStart": ""
 }

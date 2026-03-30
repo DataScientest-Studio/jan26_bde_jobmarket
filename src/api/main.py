@@ -135,6 +135,13 @@ Use the endpoints below to test the API directly from this interface.
 )
 
 # ------------------------------------
+# Prometheus metrics
+# ------------------------------------
+from prometheus_fastapi_instrumentator import Instrumentator
+from src.utils.prom_metrics import ML_PREDICTIONS_TOTAL, ML_COLD_START_SECONDS, push_pipeline_metrics
+Instrumentator().instrument(app).expose(app)
+
+# ------------------------------------
 # Global in-memory state
 # ------------------------------------
 
@@ -427,9 +434,11 @@ def _ensure_model_loaded() -> None:
             return
         logger.info("Loading ML model artifacts (first predict call)...")
         try:
+            _cold_start = time.perf_counter()
             ARTIFACTS = load_artifacts()
-            logger.info(f"Model loaded successfully: {MODEL_NAME} v{ARTIFACTS['version']}")
             rome_model = get_rome_model()
+            ML_COLD_START_SECONDS.observe(time.perf_counter() - _cold_start)
+            logger.info(f"Model loaded successfully: {MODEL_NAME} v{ARTIFACTS['version']}")
             logger.info(f"ROME model loaded: {len(rome_model) if rome_model else 0} entries")
             if ENABLE_GRAFANA_LOGS:
                 emit_structured_log({
@@ -473,6 +482,7 @@ def run_normalize_wttj_task(task_id: str, dt: Optional[str], output_format: str)
                 "errors": result.errors,
                 "duration_sec": round(duration_sec, 2),
             }
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="wttj", duration_seconds=duration_sec, status=1, rows=result.rows, errors=result.errors)
 
             set_task(
                 task_id,
@@ -489,6 +499,7 @@ def run_normalize_wttj_task(task_id: str, dt: Optional[str], output_format: str)
                 job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
         else:
             error_text = f"WTTJ normalization failed: {result.status}"
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="wttj", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=error_text,
@@ -500,7 +511,9 @@ def run_normalize_wttj_task(task_id: str, dt: Optional[str], output_format: str)
             if job_store.enabled:
                 job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
     except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
         error_text = str(e)
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="wttj", duration_seconds=duration_sec, status=0)
         set_task(
             task_id,
             message=f"Error: {error_text}",
@@ -528,6 +541,7 @@ def run_normalize_ft_task(task_id: str, dt: Optional[str], output_format: str) -
                 "errors": result.errors,
                 "duration_sec": round(duration_sec, 2),
             }
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="france_travail", duration_seconds=duration_sec, status=1, rows=result.rows, errors=result.errors)
 
             set_task(
                 task_id,
@@ -544,7 +558,7 @@ def run_normalize_ft_task(task_id: str, dt: Optional[str], output_format: str) -
                 job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
         else:
             error_text = f"FT normalization failed: {result.status}"
-            
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="france_travail", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=error_text,
@@ -558,7 +572,9 @@ def run_normalize_ft_task(task_id: str, dt: Optional[str], output_format: str) -
                 job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
 
     except Exception as e:
+        duration_sec = time.monotonic() - start_monotonic
         error_text = str(e)
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="france_travail", duration_seconds=duration_sec, status=0)
         set_task(
             task_id,
             message=f"Error: {error_text}",
@@ -623,6 +639,7 @@ def run_rome_metiers_task(task_id: str) -> None:
                 key=result.get('key')
             )
 
+            push_pipeline_metrics(run_id=task_id, stage="bronze", source="rome_metiers", duration_seconds=duration_sec, status=1, rows=result.get("records_written"), api_calls=result.get("calls"))
             if job_store.enabled:
                 job_store.finish(task_id, STATUS_SUCCESS, result=result_payload)
 
@@ -641,7 +658,7 @@ def run_rome_metiers_task(task_id: str) -> None:
                 })
         else:
             error_text = result.get("error")
-
+            push_pipeline_metrics(run_id=task_id, stage="bronze", source="rome_metiers", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=result.get("message", "Ingestion failed"),
@@ -675,6 +692,7 @@ def run_rome_metiers_task(task_id: str) -> None:
     except Exception as e:
         duration_sec = time.monotonic() - start_monotonic
         error_text = str(e)
+        push_pipeline_metrics(run_id=task_id, stage="bronze", source="rome_metiers", duration_seconds=duration_sec, status=0)
         set_task(
             task_id,
             message=f"Error: {error_text}",
@@ -765,6 +783,7 @@ def run_france_travail_offers_task(
                 "errors": result.get("errors"),
                 "duration_sec": round(duration_sec, 2)
             }
+            push_pipeline_metrics(run_id=result.get("run_id", task_id), stage="bronze", source="france_travail", duration_seconds=duration_sec, status=1, rows=result.get("written"), errors=result.get("errors"), api_calls=result.get("calls"))
             set_task(
                 task_id,
                 progress_pct=100,
@@ -806,6 +825,7 @@ def run_france_travail_offers_task(
                 })
         else:
             error_text = result.get("error")
+            push_pipeline_metrics(run_id=task_id, stage="bronze", source="france_travail", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=result.get("message", "Ingestion failed"),
@@ -843,6 +863,7 @@ def run_france_travail_offers_task(
             completed_at=datetime.now(timezone.utc),
             error=error_text,
         )
+        push_pipeline_metrics(run_id=task_id, stage="bronze", source="france_travail", duration_seconds=duration_sec, status=0)
         log_to_db('france_travail_offers', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
         if job_store.enabled:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
@@ -934,6 +955,7 @@ def run_welcome_to_jungle_task(
                 if isinstance(segment, dict):
                     errors_count += segment.get("errors", 0)
 
+            push_pipeline_metrics(run_id=result.get("run_id", task_id), stage="bronze", source="wttj", duration_seconds=duration_sec, status=1, rows=result.get("total_written"), errors=errors_count)
             set_task(
                 task_id,
                 progress_pct=100,
@@ -974,6 +996,7 @@ def run_welcome_to_jungle_task(
                 })
         else:
             error_text = result.get("error")
+            push_pipeline_metrics(run_id=task_id, stage="bronze", source="wttj", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=result.get("message", "Ingestion failed"),
@@ -1008,6 +1031,7 @@ def run_welcome_to_jungle_task(
             completed_at=datetime.now(timezone.utc),
             error=error_text,
         )
+        push_pipeline_metrics(run_id=task_id, stage="bronze", source="wttj", duration_seconds=duration_sec, status=0)
         log_to_db('welcome_to_the_jungle', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
         if job_store.enabled:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
@@ -1360,6 +1384,7 @@ def run_merge_datasets_task(
                 "unique_rome_codes": result.get("unique_rome_codes"),
                 "elapsed_s": result.get("elapsed_s")
             }
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="merged", duration_seconds=duration_sec, status=1, rows=result.get("total_offers"))
             set_task(
                 task_id,
                 progress_pct=100,
@@ -1396,6 +1421,7 @@ def run_merge_datasets_task(
                 })
         else:
             error_text = result.get("error")
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="merged", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=result.get("message", "Merge failed"),
@@ -1430,6 +1456,7 @@ def run_merge_datasets_task(
             completed_at=datetime.now(timezone.utc),
             error=error_text,
         )
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="merged", duration_seconds=duration_sec, status=0)
         log_to_db('merge_datasets', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
         if job_store.enabled:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
@@ -1494,6 +1521,7 @@ def run_status_tracking_task(
                 completed_at=datetime.now(timezone.utc),
                 result=result_payload,
             )
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="status_tracking", duration_seconds=duration_sec, status=1, rows=result.get("total_status_records"), status_counts=result.get("status_stats"))
             log_to_db(
                 'status_tracking', 'INFO',
                 f"Status tracking completed (mode={mode}): {result.get('total_status_records', 0)} records - {duration_sec:.2f}s",
@@ -1518,6 +1546,7 @@ def run_status_tracking_task(
                 })
         else:
             error_text = result.get("error", result.get("message", "Status tracking failed"))
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="status_tracking", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=result.get("message", "Status tracking failed"),
@@ -1552,6 +1581,7 @@ def run_status_tracking_task(
             completed_at=datetime.now(timezone.utc),
             error=error_text,
         )
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="status_tracking", duration_seconds=duration_sec, status=0)
         log_to_db('status_tracking', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
         if job_store.enabled:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
@@ -1621,6 +1651,7 @@ def run_status_evolution_task(
                 completed_at=datetime.now(timezone.utc),
                 result=result_payload,
             )
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="status_analytics", duration_seconds=duration_sec, status=1, rows=result.get("rows_complete"))
             log_to_db(
                 'status_evolution', 'INFO',
                 f"Status evolution completed (mode={mode}): complete={result.get('rows_complete', 0):,}, timeline={result.get('rows_timeline', 0):,} - {duration_sec:.2f}s",
@@ -1645,6 +1676,7 @@ def run_status_evolution_task(
                 })
         else:
             error_text = result.get("error", "Status evolution generation failed")
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="status_analytics", duration_seconds=duration_sec, status=0)
             set_task(
                 task_id,
                 message=f"Status evolution failed: {error_text}",
@@ -1679,6 +1711,7 @@ def run_status_evolution_task(
             completed_at=datetime.now(timezone.utc),
             error=error_text,
         )
+        push_pipeline_metrics(run_id=task_id, stage="silver", source="status_analytics", duration_seconds=duration_sec, status=0)
         log_to_db('status_evolution', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}", task_id=task_id, duration_sec=round(duration_sec, 2), error=error_text)
         if job_store.enabled:
             job_store.finish(task_id, STATUS_FAILED, error_text=error_text)
@@ -1715,6 +1748,7 @@ def run_load_geo_dim_task(task_id: str) -> None:
             completed_at=datetime.now(timezone.utc),
             result=result_payload,
         )
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="geo_dim", duration_seconds=duration_sec, status=1, rows=result["upserted"])
         log_to_db('load_geo_dim', 'INFO', f"dim_geo upserted: {result['upserted']:,} rows in {duration_sec:.2f}s",
                   task_id=task_id, duration_sec=round(duration_sec, 2), records_count=result["upserted"])
         if job_store.enabled:
@@ -1723,6 +1757,7 @@ def run_load_geo_dim_task(task_id: str) -> None:
         duration_sec = time.monotonic() - start_monotonic
         error_text = str(e)
         logger.error(f"run_load_geo_dim_task failed: {error_text}", exc_info=True)
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="geo_dim", duration_seconds=duration_sec, status=0)
         set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
                  completed_at=datetime.now(timezone.utc), error=error_text)
         log_to_db('load_geo_dim', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
@@ -1749,6 +1784,7 @@ def run_load_naf_dim_task(task_id: str) -> None:
             completed_at=datetime.now(timezone.utc),
             result=result_payload,
         )
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="naf_dim", duration_seconds=duration_sec, status=1, rows=result["upserted"])
         log_to_db('load_naf_dim', 'INFO', f"dim_naf upserted: {result['upserted']:,} rows in {duration_sec:.2f}s",
                   task_id=task_id, duration_sec=round(duration_sec, 2), records_count=result["upserted"])
         if job_store.enabled:
@@ -1757,6 +1793,7 @@ def run_load_naf_dim_task(task_id: str) -> None:
         duration_sec = time.monotonic() - start_monotonic
         error_text = str(e)
         logger.error(f"run_load_naf_dim_task failed: {error_text}", exc_info=True)
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="naf_dim", duration_seconds=duration_sec, status=0)
         set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
                  completed_at=datetime.now(timezone.utc), error=error_text)
         log_to_db('load_naf_dim', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
@@ -1808,6 +1845,7 @@ def run_load_star_schema_task(task_id: str, source_mode: str, incremental: bool)
         duration_sec = time.monotonic() - start_monotonic
         error_text = str(e)
         logger.error(f"run_load_star_schema_task failed: {error_text}", exc_info=True)
+        push_pipeline_metrics(run_id=task_id, stage="gold", source="status_analytics", duration_seconds=duration_sec, status=0)
         set_task(task_id, message=f"Error: {error_text}", status=STATUS_FAILED,
                  completed_at=datetime.now(timezone.utc), error=error_text)
         log_to_db('load_star_schema', 'ERROR', f"Exception after {duration_sec:.2f}s: {e}",
@@ -2041,6 +2079,7 @@ def predict(req: PredictRequest):
         competences=req.competences,
     )
     pred = predict_top_k(ARTIFACTS, text, top_k=TOP_K, rome_index=rome_model)
+    ML_PREDICTIONS_TOTAL.inc()
     logger.info(f"Prediction successful — ROME: {pred.get('rome_pred', 'N/A')} / {pred.get('rome_label', 'N/A')}")
     return pred
 

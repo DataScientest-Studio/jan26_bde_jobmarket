@@ -110,6 +110,8 @@ def normalize_ft_jobs(dt: str, output_format: str = "parquet") -> NormalizeResul
     total_files = len(keys)
     file_counter = 0
     global_start_time = time.time()
+    _last_progress_log_count = 0
+    _LOG_EVERY_N_RECORDS = 1000
 
     #For tqdm progress bars, group keys by run_id prefix to show progress per run_id batch
     keys_by_run = defaultdict(list)
@@ -189,32 +191,29 @@ def normalize_ft_jobs(dt: str, output_format: str = "parquet") -> NormalizeResul
                 estimated_total = (elapsed / file_counter) * total_files if file_counter > 0 else 0
                 remaining = max(estimated_total - elapsed, 0)
                 elapsed_str = _format_seconds(elapsed)
-                estimated_total_str = _format_seconds(estimated_total)
                 eta_remaining_str = _format_seconds(remaining)
                 progress_bar.set_postfix_str(
-                    f"{file_counter}/{total_files} elapsed={elapsed_str} eta={eta_remaining_str}"
+                    f"{file_counter}/{total_files} files | {len(data)} records | elapsed={elapsed_str} eta={eta_remaining_str}"
                 )
 
-                try:
-                    log_to_db(
-                        endpoint="normalize_ft_jobs",
-                        level="INFO",
-                        message=(
-                            f"Processing {run_prefix} | {file_counter}/{total_files} files processed | "
-                            f"elapsed={elapsed_str} | estimated_total={estimated_total_str} | eta_remaining={eta_remaining_str}"
-                        ),
-                        job_id=job_id,
-                        dt=dt,
-                        output_format=output_format,
-                        run_prefix=run_prefix,
-                        files_processed=file_counter,
-                        elapsed=elapsed_str,
-                        estimated_total=estimated_total_str,
-                        ETA=eta_remaining_str,
-                        status="RUNNING",
-                    )
-                except Exception as exc:
-                    logger.warning(f"[normalize_ft_jobs] log_to_db progress(done file) failed: {exc}")
+                # Log en DB toutes les 1000 offres (pas tous les fichiers)
+                if len(data) - _last_progress_log_count >= _LOG_EVERY_N_RECORDS:
+                    _last_progress_log_count = len(data)
+                    try:
+                        log_to_db(
+                            endpoint="normalize_ft_jobs",
+                            level="INFO",
+                            message=(
+                                f"Progress | {len(data):,} records | {file_counter}/{total_files} files | "
+                                f"errors={errors} | elapsed={elapsed_str} | eta={eta_remaining_str}"
+                            ),
+                            task_id=job_id,
+                            duration_sec=round(elapsed, 2),
+                            records_count=len(data),
+                            error_count=errors,
+                        )
+                    except Exception as exc:
+                        logger.warning(f"[normalize_ft_jobs] log_to_db progress failed: {exc}")
             except Exception as exc:
                 errors += 1
                 logger.error(f"[normalize_ft_jobs] Error processing {run_prefix}: {exc}")
@@ -230,17 +229,16 @@ def normalize_ft_jobs(dt: str, output_format: str = "parquet") -> NormalizeResul
         f"rows={len(df)} | files={files} | errors={errors}"
     )
 
+    total_elapsed = time.time() - global_start_time
     try:
         log_to_db(
             endpoint="normalize_ft_jobs",
             level="INFO",
-            message=f"Job done: {job_id}, dt={dt}, output_format={output_format}, files={files}, errors={errors}",
-            job_id=job_id,
-            dt=dt,
-            output_format=output_format,
-            files=files,
-            errors=errors,
-            status="SUCCESS",
+            message=f"Done | {len(df):,} records | {len(files)} file(s) | errors={errors} | elapsed={_format_seconds(total_elapsed)}",
+            task_id=job_id,
+            duration_sec=round(total_elapsed, 2),
+            records_count=len(df),
+            error_count=errors,
         )
     except Exception as exc:
         logger.warning(f"[normalize_ft_jobs] log_to_db done failed: {exc}")
