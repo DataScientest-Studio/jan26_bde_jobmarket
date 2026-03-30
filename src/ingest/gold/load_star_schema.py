@@ -202,7 +202,6 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
         "updated_at": None,
         "unpublished_at": None,
         "rome_code": "UNKNOWN",
-        "rome_label": "Unknown ROME",
         "contract_normalized": "UNKNOWN",
         "contract_detail": None,
         "contract_type": "UNKNOWN",
@@ -252,7 +251,6 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
     # Standardize nullish text fields to deterministic values for dimension joins.
     text_cols = [
         "rome_code",
-        "rome_label",
         "contract_normalized",
         "contract_type",
         "worktime",
@@ -311,7 +309,6 @@ def _prepare_staging_frame(df: pd.DataFrame, snapshot_dt: str, run_id: str) -> p
         "updated_at",
         "unpublished_at",
         "rome_code",
-        "rome_label",
         "contract_normalized",
         "contract_detail",
         "contract_type",
@@ -358,7 +355,6 @@ def _copy_staging(conn, df: pd.DataFrame, chunk_size: int = 50_000) -> None:
         "updated_at",
         "unpublished_at",
         "rome_code",
-        "rome_label",
         "contract_normalized",
         "contract_detail",
         "contract_type",
@@ -438,24 +434,17 @@ def _upsert_dimensions_and_fact(conn, run_id: str) -> None:
             (run_id,),
         )
 
+        # dim_code_rome est pré-chargé depuis le référentiel officiel (load_rome_dim).
+        # On insère uniquement les codes absents sans écraser les libellés officiels.
         cur.execute(
             """
             INSERT INTO gold.dim_code_rome (rome_code, rome_label)
-            SELECT
-                rome_code,
-                MAX(rome_label) AS rome_label
-            FROM (
-                SELECT
-                    COALESCE(NULLIF(rome_code, ''), 'UNKNOWN') AS rome_code,
-                    COALESCE(NULLIF(rome_label, ''), 'Unknown ROME') AS rome_label
-                FROM gold.stg_offer
-                WHERE run_id = %s
-            ) dedup
-            GROUP BY rome_code
-            ON CONFLICT (rome_code)
-            DO UPDATE SET
-                rome_label = EXCLUDED.rome_label,
-                updated_at = NOW()
+            SELECT DISTINCT
+                COALESCE(NULLIF(rome_code, ''), 'UNKNOWN') AS rome_code,
+                'Unknown ROME' AS rome_label
+            FROM gold.stg_offer
+            WHERE run_id = %s
+            ON CONFLICT (rome_code) DO NOTHING
             """,
             (run_id,),
         )
