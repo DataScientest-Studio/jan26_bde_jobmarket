@@ -1,10 +1,8 @@
 select count (*), rome.rome_key , rome_code, rome_label 
 from gold.fact_offre_emploi as f
 join gold.dim_code_rome as rome on f.rome_key = rome.rome_key
- group by rome.rome_key
- order by count(*) desc ;
+group by rome.rome_key
+order by count(*) desc ;
 
-select rome.rome_key , rome_code, rome_label 
-from gold.dim_code_rome as rome
-where rome_label='UNKNOWN';
+-- select rome.rome_key , rome_code, rome_label  from gold.dim_code_rome as rome -where rome_label='UNKNOWN';
  
