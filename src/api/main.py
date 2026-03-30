@@ -1608,7 +1608,22 @@ def run_status_tracking_task(
                 completed_at=datetime.now(timezone.utc),
                 result=result_payload,
             )
-            push_pipeline_metrics(run_id=task_id, stage="silver", source="status_tracking", duration_seconds=duration_sec, status=1, rows=result.get("total_status_records"), status_counts=result.get("status_stats"))
+            raw_stats = result.get("status_stats") or {}
+            # global_recalc retourne {date: {source: {status: N}}} — on agrège par source
+            # incremental retourne {source: {status: N}} — format attendu directement
+            first_val = next(iter(raw_stats.values()), None)
+            if isinstance(first_val, dict) and first_val and not isinstance(next(iter(first_val.values()), None), (int, float)):
+                aggregated: dict = {}
+                for _dt, source_counts in raw_stats.items():
+                    for src, counts in source_counts.items():
+                        if src not in aggregated:
+                            aggregated[src] = {}
+                        for status_label, count in counts.items():
+                            aggregated[src][status_label] = aggregated[src].get(status_label, 0) + count
+                status_counts_prom = aggregated
+            else:
+                status_counts_prom = raw_stats
+            push_pipeline_metrics(run_id=task_id, stage="silver", source="status_tracking", duration_seconds=duration_sec, status=1, rows=result.get("total_status_records"), status_counts=status_counts_prom)
             log_to_db(
                 'status_tracking', 'INFO',
                 f"Status tracking completed (mode={mode}): {result.get('total_status_records', 0)} records - {duration_sec:.2f}s",
