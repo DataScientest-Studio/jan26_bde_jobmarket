@@ -37,10 +37,11 @@ def get_rome_metiers(client: FranceTravailClient = None) -> List[Tuple[str, str]
     Returns:
         Liste triée de tuples (code, libelle)
     """
+    data = []
     if client is None:
         client = FranceTravailClient()
         
-        client.get(
+        data =client.get(
         "https://api.francetravail.io/partenaire/rome-metiers/v1/metiers/metier",
         params={
             "champs": "code,appellations(libelle)"

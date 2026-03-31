@@ -1,1 +1,1 @@
-from .storage import Storage, LocalStorage, S3Storage, get_storage_from_env
+from .storage import Storage as Storage, S3Storage as S3Storage, get_storage_from_env as get_storage_from_env

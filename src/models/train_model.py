@@ -436,7 +436,7 @@ def train_with_manual_tuning(X_train, y_train, X_val, y_val):
     ngram_max_values = MANUAL_TUNING_NGRAM_MAX_VALUES
     min_df_values = MANUAL_TUNING_MIN_DF_VALUES
     
-    print(f"  Parameters from env:")
+    print("  Parameters from env:")
     print(f"    C_values: {C_values}")
     print(f"    ngram_max_values: {ngram_max_values}")
     print(f"    min_df_values: {min_df_values}")
@@ -523,7 +523,7 @@ def train_with_grid_search(X_train, y_train, X_val, y_val):
     # Parse ngram ranges from env
     ngram_ranges = parse_ngram_range_string(GRID_SEARCH_NGRAM_RANGE)
     
-    print(f"  Parameters from env:")
+    print("  Parameters from env:")
     print(f"    ngram_ranges: {ngram_ranges}")
     print(f"    min_df: {GRID_SEARCH_MIN_DF}")
     print(f"    max_df: {GRID_SEARCH_MAX_DF}")
