@@ -23,13 +23,13 @@ from src.ingest.data_models.bronze_datamodel_class import wtt_bronze_datamodels
 from concurrent.futures import ThreadPoolExecutor 
 import threading
 
-logger = logging.getLogger("wttj.ingest.bronze")
-thread_trace_logger = logging.getLogger("wttj.ingest.bronze.threadtrace")
-
 # ----------------------------
 # Load environment variables
 # ----------------------------
 from src.config.env import load_project_env
+
+logger = logging.getLogger("wttj.ingest.bronze")
+thread_trace_logger = logging.getLogger("wttj.ingest.bronze.threadtrace")
 load_project_env()  # safe à rappeler (idempotent)
 
 
