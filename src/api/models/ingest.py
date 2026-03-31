@@ -4,7 +4,7 @@ Modèles de réponse pour les opérations d'ingestion de données.
 Tous héritent de BaseJobResponse : success, message, records_count toujours présents.
 """
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import Field
 from .base import BaseJobResponse
 
 

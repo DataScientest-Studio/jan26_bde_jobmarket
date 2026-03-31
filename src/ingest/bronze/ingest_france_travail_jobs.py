@@ -27,7 +27,6 @@ from typing import Any, Dict, List, Optional, Callable
 # Load environment variables
 # ----------------------------
 from src.config.env import load_project_env
-load_project_env()  # safe à rappeler (idempotent)
 
 # ----------------------------
 # Import project-specific modules
@@ -38,6 +37,8 @@ from src.ingest.tools.france_travail_common import get_rome_metiers, print_rome_
 from src.utils.time_helpers import utc_dt_str, utc_run_id, format_eta
 from src.storage.storage import get_storage_from_env, Storage
 from src.utils.log_to_db import log_to_db
+
+load_project_env()  # safe à rappeler (idempotent)
 
 # Logger setup
 logger = logging.getLogger(__name__)

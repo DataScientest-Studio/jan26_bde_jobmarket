@@ -59,7 +59,7 @@ def main():
         config = load_config(storage, version)
         
         if metrics is None or config is None:
-            print(f"❌ Modèle non trouvé. Exécuter d'abord: test_all_strategies.ps1")
+            print("❌ Modèle non trouvé. Exécuter d'abord: test_all_strategies.ps1")
             continue
         
         # Extract info
@@ -68,14 +68,14 @@ def main():
         strategy = tuning_info.get("strategy", "unknown")
         
         print(f"Strategy: {strategy}")
-        print(f"\n📈 Test Metrics:")
+        print("\n📈 Test Metrics:")
         print(f"  - Accuracy:  {test_metrics.get('accuracy', 0):.4f}")
         print(f"  - F1-Macro:  {test_metrics.get('f1_macro', 0):.4f}")
         print(f"  - Top-3:     {test_metrics.get('top3', 0):.4f}")
         print(f"  - Top-5:     {test_metrics.get('top5', 0):.4f}")
         
         if strategy != "none":
-            print(f"\n🔧 Best Parameters:")
+            print("\n🔧 Best Parameters:")
             best_params = tuning_info.get("best_params", {})
             for key, value in best_params.items():
                 print(f"  - {key}: {value}")

@@ -16,17 +16,14 @@ allowing for on-demand ingestion or integration with other systems.
  
 """
 
-
-from src import data
 from src.ingest.clients.france_travail_client import FranceTravailClient
 from src.storage.storage import get_storage_from_env, Storage
-from typing import Any, Dict, Iterable, List, Tuple
-import os
+from typing import Any, Dict, List, Tuple
 import logging
 
 from src.config.env import require_env, get_project_root, load_project_env
-load_project_env()  # safe à rappeler (idempotent)
 
+load_project_env()  # safe à rappeler (idempotent)
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +40,7 @@ def get_rome_metiers(client: FranceTravailClient = None) -> List[Tuple[str, str]
     if client is None:
         client = FranceTravailClient()
         
-    data = client.get(
+        client.get(
         "https://api.francetravail.io/partenaire/rome-metiers/v1/metiers/metier",
         params={
             "champs": "code,appellations(libelle)"

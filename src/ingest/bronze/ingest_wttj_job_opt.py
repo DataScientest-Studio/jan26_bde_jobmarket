@@ -28,8 +28,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Callable
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Callable
 
 try:
     from curl_cffi import requests as cffi_requests

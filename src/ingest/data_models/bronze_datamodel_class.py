@@ -1,6 +1,6 @@
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 # ==========================
 # Bronze datamodels : classes de données immuables pour les données brutes, avant   
