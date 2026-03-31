@@ -26,10 +26,9 @@ import os
 import pandas as pd
 
 from src.config.env import load_project_env
+from src.storage.storage import get_storage_from_env
 
 load_project_env()
-
-from src.storage.storage import get_storage_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ def analyze(dt: str | None = None) -> dict:
     print(f"Total classes   : {n_classes:>10,}")
     print(f"Avg per class   : {n_rows / n_classes:>10.0f}")
 
-    print(f"\n--- Distribution statistics ---")
+    print("\n--- Distribution statistics ---")
     print(f"Min             : {counts.min():>10,}")
     print(f"p10             : {int(counts.quantile(0.10)):>10,}")
     print(f"p25             : {int(counts.quantile(0.25)):>10,}")
@@ -95,8 +94,8 @@ def analyze(dt: str | None = None) -> dict:
     p90 = int(counts.quantile(0.90))
 
     # ------------------------------------------------------------------
-    print(f"\n--- Impact MIN_CLASS_COUNT filter ---")
-    print(f"  Interpretation : classes below the threshold are removed entirely.")
+    print("\n--- Impact MIN_CLASS_COUNT filter ---")
+    print("  Interpretation : classes below the threshold are removed entirely.")
     print(f"  The current .env value is MIN_CLASS_COUNT={os.getenv('MIN_CLASS_COUNT', '25')}.")
     print()
     print(f"  {'Threshold':>10}  {'Classes kept':>14}  {'% classes':>10}  {'Rows kept':>10}  {'% rows':>8}  {'Rows dropped':>12}")
@@ -116,8 +115,8 @@ def analyze(dt: str | None = None) -> dict:
         )
 
     # ------------------------------------------------------------------
-    print(f"\n--- Impact capping (MAX_CLASS_COUNT — max examples per class) ---")
-    print(f"  Interpretation : classes above the cap are randomly downsampled to N examples.")
+    print("\n--- Impact capping (MAX_CLASS_COUNT — max examples per class) ---")
+    print("  Interpretation : classes above the cap are randomly downsampled to N examples.")
     print(f"  Classes below the cap are untouched. p75={p75:,}  p90={p90:,}")
     print()
     print(f"  {'Cap':>7}  {'Classes affected':>17}  {'Rows kept':>10}  {'% kept':>7}  {'Rows removed':>13}  Note")
@@ -142,29 +141,29 @@ def analyze(dt: str | None = None) -> dict:
         )
 
     # ------------------------------------------------------------------
-    print(f"\n--- Top 10 most frequent classes ---")
-    print(f"  Each class share = examples in class / total rows")
+    print("\n--- Top 10 most frequent classes ---")
+    print("  Each class share = examples in class / total rows")
     print()
     for code, cnt in counts.head(10).items():
         bar = "█" * min(40, int(cnt / counts.max() * 40))
         share = cnt / n_rows * 100
         print(f"  {code} : {cnt:>6,}  ({share:>4.1f}% of dataset)  {bar}")
 
-    print(f"\n--- Top 10 least frequent classes ---")
-    print(f"  These classes are the most at risk of low recall without class_weight.")
+    print("\n--- Top 10 least frequent classes ---")
+    print("  These classes are the most at risk of low recall without class_weight.")
     print()
     for code, cnt in counts.tail(10).items():
         share = cnt / n_rows * 100
         print(f"  {code} : {cnt:>6,}  ({share:>5.2f}% of dataset)")
 
     # ------------------------------------------------------------------
-    print(f"\n--- Classes by frequency quintile ---")
+    print("\n--- Classes by frequency quintile ---")
     print(
-        f"  The dataset is split into 5 equal groups of classes ranked by frequency.\n"
-        f"  Q1 = rarest 20% of classes, Q5 = most frequent 20% of classes.\n"
-        f"  A healthy dataset has rows distributed roughly evenly across quintiles.\n"
-        f"  Heavy concentration in Q5 means LinearSVC will be biased toward those classes\n"
-        f"  and Q1 classes will have low recall — macro F1 will be degraded.\n"
+        "  The dataset is split into 5 equal groups of classes ranked by frequency.\n"
+        "  Q1 = rarest 20% of classes, Q5 = most frequent 20% of classes.\n"
+        "  A healthy dataset has rows distributed roughly evenly across quintiles.\n"
+        "  Heavy concentration in Q5 means LinearSVC will be biased toward those classes\n"
+        "  and Q1 classes will have low recall — macro F1 will be degraded.\n"
     )
     labels = ["Q1 (rare)", "Q2", "Q3", "Q4", "Q5 (frequent)"]
     quintiles = pd.qcut(counts, q=5, labels=labels)
@@ -198,12 +197,12 @@ def analyze(dt: str | None = None) -> dict:
     speedup_p90 = n_rows / rows_at_p90
 
     print(f"\n{'='*60}")
-    print(f"CONCLUSION — Recommended capping strategy")
+    print("CONCLUSION — Recommended capping strategy")
     print(f"{'='*60}")
     print(
-        f"\n"
+        "\n"
         f"  Current dataset : {n_rows:,} rows | {n_classes} classes | imbalance Q5/Q1 = {q5_rows/q1_rows:.0f}:1\n"
-        f"\n"
+        "\n"
         f"  Option A — cap = p90 ({p90:,} examples)   [recommended for production]\n"
         f"  ┌─────────────────────────────────────────────────────┐\n"
         f"  │  Classes untouched : {n_classes - classes_above_p90:>4} / {n_classes}  ({(n_classes-classes_above_p90)/n_classes*100:.1f}%)            │\n"
@@ -211,23 +210,23 @@ def analyze(dt: str | None = None) -> dict:
         f"  │  Rows after cap    : {rows_at_p90:>10,}  ({rows_at_p90/n_rows*100:.1f}% of original)   │\n"
         f"  │  Rows removed      : {n_rows - rows_at_p90:>10,}  ({(n_rows-rows_at_p90)/n_rows*100:.1f}% reduction)       │\n"
         f"  │  Estimated speedup : ~{speedup_p90:.1f}x faster training               │\n"
-        f"  │  Risk              : minimal — only top 10% classes affected  │\n"
-        f"  └─────────────────────────────────────────────────────┘\n"
-        f"\n"
+        "  │  Risk              : minimal — only top 10% classes affected  │\n"
+        "  └─────────────────────────────────────────────────────┘\n"
+        "\n"
         f"  Option B — cap = p75 ({p75:,} examples)   [for fast iteration / testing]\n"
-        f"  ┌─────────────────────────────────────────────────────┐\n"
+        "  ┌─────────────────────────────────────────────────────┐\n"
         f"  │  Classes untouched : {n_classes - classes_above_p75:>4} / {n_classes}  ({(n_classes-classes_above_p75)/n_classes*100:.1f}%)            │\n"
         f"  │  Classes capped    : {classes_above_p75:>4} / {n_classes}  ({classes_above_p75/n_classes*100:.1f}%)            │\n"
         f"  │  Rows after cap    : {rows_at_p75:>10,}  ({rows_at_p75/n_rows*100:.1f}% of original)   │\n"
         f"  │  Rows removed      : {n_rows - rows_at_p75:>10,}  ({(n_rows-rows_at_p75)/n_rows*100:.1f}% reduction)       │\n"
         f"  │  Estimated speedup : ~{speedup_p75:.1f}x faster training               │\n"
-        f"  │  Risk              : moderate — top 25% classes lose diversity │\n"
-        f"  └─────────────────────────────────────────────────────┘\n"
-        f"\n"
-        f"  Combined with class_weight='balanced' (already active in LinearSVC):\n"
-        f"  → The model will weight rare classes (Q1) higher during training.\n"
-        f"  → Expected macro F1 improvement even if accuracy stays flat.\n"
-        f"\n"
+        "  │  Risk              : moderate — top 25% classes lose diversity │\n"
+        "  └─────────────────────────────────────────────────────┘\n"
+        "\n"
+        "  Combined with class_weight='balanced' (already active in LinearSVC):\n"
+        "  → The model will weight rare classes (Q1) higher during training.\n"
+        "  → Expected macro F1 improvement even if accuracy stays flat.\n"
+        "\n"
         f"  To apply: set MAX_CLASS_COUNT={p90} in .env and re-run make_dataset.\n"
     )
 
@@ -292,7 +291,7 @@ def compare() -> None:
     loaded_dts = sorted(all_counts.keys())
 
     # ------------------------------------------------------------------
-    print(f"\n--- Summary per dt ---")
+    print("\n--- Summary per dt ---")
     print(
         f"  {'dt':<12}  {'Rows':>8}  {'Classes':>8}  {'Median':>7}  "
         f"{'p75':>6}  {'p90':>6}  {'Q5 share':>9}  {'Q1 share':>9}"
@@ -313,11 +312,11 @@ def compare() -> None:
         )
 
     # ------------------------------------------------------------------
-    print(f"\n--- Class stability between consecutive dt ---")
+    print("\n--- Class stability between consecutive dt ---")
     print(
-        f"  'Appeared'  = class present in dt N but absent in dt N-1  (new ROME code in data)\n"
-        f"  'Disappeared' = class present in dt N-1 but absent in dt N  (code no longer in data)\n"
-        f"  A class that disappears means the model trained on dt N cannot predict it.\n"
+        "  'Appeared'  = class present in dt N but absent in dt N-1  (new ROME code in data)\n"
+        "  'Disappeared' = class present in dt N-1 but absent in dt N  (code no longer in data)\n"
+        "  A class that disappears means the model trained on dt N cannot predict it.\n"
     )
     for i in range(1, len(loaded_dts)):
         prev_dt, curr_dt = loaded_dts[i - 1], loaded_dts[i]
@@ -330,10 +329,10 @@ def compare() -> None:
         print(f"    Disappeared : {len(disappeared):>4} classes  {disappeared[:10]}{'...' if len(disappeared) > 10 else ''}")
 
     # ------------------------------------------------------------------
-    print(f"\n--- Top 10 classes with largest frequency change between consecutive dt ---")
+    print("\n--- Top 10 classes with largest frequency change between consecutive dt ---")
     print(
-        f"  Large swings indicate seasonal occupations or ingestion volume changes.\n"
-        f"  A class growing fast may dominate training; a shrinking class may lose recall.\n"
+        "  Large swings indicate seasonal occupations or ingestion volume changes.\n"
+        "  A class growing fast may dominate training; a shrinking class may lose recall.\n"
     )
     for i in range(1, len(loaded_dts)):
         prev_dt, curr_dt = loaded_dts[i - 1], loaded_dts[i]
@@ -351,11 +350,11 @@ def compare() -> None:
             print(f"  {code:<8}  {prev_val:>7,}  {curr_val:>7,}  {diff:>+7,}  {direction}")
 
     # ------------------------------------------------------------------
-    print(f"\n--- Q5 share evolution (imbalance trend) ---")
+    print("\n--- Q5 share evolution (imbalance trend) ---")
     print(
-        f"  Q5 = most frequent 20%% of classes.\n"
-        f"  If Q5 share grows over time, the dataset becomes more skewed\n"
-        f"  and class_weight='balanced' becomes increasingly important.\n"
+        "  Q5 = most frequent 20%% of classes.\n"
+        "  If Q5 share grows over time, the dataset becomes more skewed\n"
+        "  and class_weight='balanced' becomes increasingly important.\n"
     )
     print(f"  {'dt':<12}  {'Q5 % of rows':>13}  {'Q1 % of rows':>13}  {'Imbalance ratio':>16}")
     print(f"  {'-'*58}")
