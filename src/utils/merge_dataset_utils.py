@@ -605,7 +605,7 @@ def print_statistics(df: pd.DataFrame) -> None:
     print(f"   ROME code provided: {rome_filled:,} ({rome_rate:.1f}%)")
     
     # All fields fill rate analysis
-    print(f"\n   📋 FILL RATE FOR ALL FIELDS (sorted by rate)")
+    print("\n   📋 FILL RATE FOR ALL FIELDS (sorted by rate)")
     field_stats = []
     for col in df.columns:
         filled, rate = _calculate_fill_rate(df[col])
