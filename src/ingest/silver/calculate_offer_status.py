@@ -140,8 +140,8 @@ import pandas as pd
 import re
 import time
 import uuid
-from datetime import datetime, timedelta
-from typing import Tuple, Optional, List, Dict
+from datetime import datetime
+from typing import Tuple, Optional, List
 from src.storage.storage import Storage, get_storage_from_env
 from src.utils import storage_tools
 from src.utils.log_to_db import log_to_db
@@ -499,11 +499,11 @@ def run_status_tracking(
     # Initialize storage if not provided
     if storage_silver_merged is None:
         storage_silver_merged = get_storage_from_env("silver", "merged")
-        logger.info(f"📂 Storage (merged): silver/merged")
+        logger.info("📂 Storage (merged): silver/merged")
     
     if storage_silver_status is None:
         storage_silver_status = get_storage_from_env("silver", "status_history")
-        logger.info(f"📂 Storage (status): silver/status_history")
+        logger.info("📂 Storage (status): silver/status_history")
     
     # =============================
     # INCREMENTAL MODE
@@ -579,7 +579,7 @@ def _run_incremental_status_update(
     current_file = parquet_files[-1]  # Most recent
     previous_file = parquet_files[-2]  # Previous
     
-    logger.info(f"📥 Loading datasets for comparison:")
+    logger.info("📥 Loading datasets for comparison:")
     logger.info(f"   Current (new):  {current_file}")
     logger.info(f"   Previous (old): {previous_file}")
     
@@ -774,7 +774,7 @@ def _run_global_status_recalculation(
 
         df_current = storage_tools.load_parquet_dataset(storage_merged, merged_file)
         if df_current is None:
-            logger.warning(f"            ⚠️ Failed to load, skipping")
+            logger.warning("            ⚠️ Failed to load, skipping")
             continue
 
         logger.info(f"            ✓ Loaded {len(df_current):,} rows")
@@ -783,7 +783,7 @@ def _run_global_status_recalculation(
         current_dt = merged_dt_match.group(1) if merged_dt_match else None
 
         if current_dt is None:
-            logger.warning(f"            ⚠️ Could not extract date from filename, skipping")
+            logger.warning("            ⚠️ Could not extract date from filename, skipping")
             continue
 
         logger.info(f"            Building status history for {current_dt}...")

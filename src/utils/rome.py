@@ -4,14 +4,14 @@
 
 import os
 
-from src.config.env import require_env, get_project_root, load_project_env
-load_project_env()  # safe à rappeler (idempotent)
+from src.config.env import load_project_env
 import requests
 import logging
-from typing import List, Optional
+from typing import Optional
 import json
 import os
 
+load_project_env()  # safe à rappeler (idempotent)
 logger = logging.getLogger(__name__)
 
 def get_rome_code_from_ml_prediction_via_api(name: str, description: str) -> Optional[str]:

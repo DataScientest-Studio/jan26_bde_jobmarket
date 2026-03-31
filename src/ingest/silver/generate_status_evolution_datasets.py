@@ -31,7 +31,6 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from src.storage.storage import Storage, get_storage_from_env

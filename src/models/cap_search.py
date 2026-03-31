@@ -30,16 +30,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
 from src.config.env import load_project_env
-
-load_project_env()
-
 from src.storage.storage import get_storage_from_env
 from src.models.train_model import train
 
+load_project_env()
 logger = logging.getLogger(__name__)
 
 # Default cap values to test — covers: no cap, p75, intermediate, p90, above p90
