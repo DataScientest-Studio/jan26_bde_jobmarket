@@ -19,7 +19,6 @@ import json
 from typing import List
 
 from src.config.env import load_project_env
-load_project_env()  # safe à rappeler (idempotent)
 
 # Classes
 from src.ingest.data_models.silver_datamodel_class import NormalizeResult, Silver_Datamodel
@@ -37,6 +36,9 @@ import src.utils.time_helpers as time_helpers
 # à ajouter avant toute création de logger :
 import logging
 logging.basicConfig(level=logging.INFO)
+
+load_project_env()  # safe à rappeler (idempotent)
+
 # ----------------------------
 # Logging
 # ----------------------------
@@ -204,9 +206,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeRes
                         logger.warning(f"[normalize_wttj_jobs] log_to_db line progress failed: {db_e}")
 
                 line = line_bytes.decode('utf-8', errors='ignore').strip()
-            
-                if not line: continue
-                
+               
                 try:
                     # 1. Parser le JSON
                     record = json.loads(line)
@@ -222,7 +222,7 @@ def normalize_wttj_jobs(dt: str, output_format: str = "parquet") -> NormalizeRes
                     
                     # Vérifier que job_data existe
                     if not job_data or not isinstance(job_data, dict):
-                        print(f"⚠️ job_data invalide ")
+                        print("⚠️ job_data invalide ")
                         errors += 1
                         continue
                     
@@ -380,7 +380,7 @@ def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> Normalize
     #  Destination storage : silver normalized files
     storage_silver_merged = get_storage_from_env("silver", "welcometothejungle")
 
-    logger.info(f"📂 Storage: bronze")
+    logger.info("📂 Storage: bronze")
     # List all objects in the storage
     prefix=""
     # Get Immediate prefixes (simulate folders) under bronze
@@ -392,7 +392,7 @@ def normalize_wttj_jobs_incremental(output_format: str = "parquet") -> Normalize
     # To debug
     #sorted_dates_bronze = ["debug"]
 
-    logger.info(f"📂 Storage: silver")
+    logger.info("📂 Storage: silver")
     # List all objects in the storage
     prefix=""
     # Get Immediate prefixes (simulate folders) under silver/merged/

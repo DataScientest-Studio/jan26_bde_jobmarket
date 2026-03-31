@@ -4,12 +4,14 @@ load_project_env()  # safe à rappeler (idempotent)
 from src.storage.storage import get_storage_from_env
 
 import logging
-logger = logging.getLogger(__name__)
 
 import pandas as pd
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger(__name__)
+
 
 # Mapping des patterns => type normalisé
 PATTERNS_CONTRACT_NORMALIZE = [
@@ -617,7 +619,7 @@ def print_statistics(df: pd.DataFrame) -> None:
     for col, filled, rate in field_stats_sorted:
         print(f"      {col:30s}: {filled:>8,}/{len(df):>8,} ({rate:>5.1f}%)")
 
-    print(f"\n   🔎 DATA QUALITY BY SOURCE")
+    print("\n   🔎 DATA QUALITY BY SOURCE")
     if 'source' in df.columns:
         for source in df['source'].dropna().unique():
             source_df = df[df['source'] == source]
@@ -642,7 +644,7 @@ def print_statistics(df: pd.DataFrame) -> None:
     print_statistics_salaries(df)
 
     # Random samples by source
-    print(f"\n🎲 3 RANDOM ENTRIES BY SOURCE")
+    print("\n🎲 3 RANDOM ENTRIES BY SOURCE")
     if 'source' in df.columns:
         def _compact_text(value, max_len: int = 100) -> str:
             if value is None:
@@ -697,18 +699,18 @@ def print_statistics_salaries(df: pd.DataFrame) -> None:
     print("=" * 80)
     
     # Global
-    print(f"\n📈 GLOBAL STATISTICS")
+    print("\n📈 GLOBAL STATISTICS")
     print(f"   Total offers: {len(df):,}")
 
     # Salary
-    print(f"\n💰 SALARY")
+    print("\n💰 SALARY")
     total = len(df)
     n_raw = df['salary_periodicity'].fillna('').ne('').sum() if 'salary_periodicity' in df.columns else 0
     print(f"   Raw salary field set  : {n_raw:,} ({n_raw/total*100:.1f}%)")
     print(f"   No salary info        : {total - n_raw:,} ({(total - n_raw)/total*100:.1f}%)")
 
     if 'periodicity' in df.columns:
-        print(f"\n💰 SALARY — AFTER NORMALIZATION")
+        print("\n💰 SALARY — AFTER NORMALIZATION")
         n_per    = df['periodicity'].notna().sum()
         n_min    = df['salary_min_computed'].notna().sum()  if 'salary_min_computed'  in df.columns else 0
         n_max    = df['salary_max_computed'].notna().sum()  if 'salary_max_computed'  in df.columns else 0
@@ -723,7 +725,7 @@ def print_statistics_salaries(df: pd.DataFrame) -> None:
         # Breakdown by periodicity: raw amounts + yearly equivalent
         # Allows detecting outliers (e.g. an annual salary stored in mensuel field)
         if 'salary_min_computed' in df.columns and n_yearly > 0:
-            print(f"\n   ── Salary details by periodicity ──")
+            print("\n   ── Salary details by periodicity ──")
             for period in ['Annuel', 'Mensuel', 'Horaire']:
                 mask = df['periodicity'] == period
                 sub = df[mask]

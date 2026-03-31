@@ -22,13 +22,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-try:
-    import orjson  # 10x faster than standard json
-    USE_ORJSON = True
-except ImportError:
-    USE_ORJSON = False
+from typing import Any, Dict,Optional
     
 import pandas as pd
 from dotenv import load_dotenv
@@ -537,15 +531,15 @@ def main():
     
     args = parser.parse_args()
 
-    #wttj_prefix=args.wttj_prefix
-    #ft_prefix=args.ft_prefix
-    #output_prefix=args.output_prefix
-    #output_format=args.format
+    wttj_prefix=args.wttj_prefix
+    ft_prefix=args.ft_prefix
+    output_prefix=args.output_prefix
+    output_format=args.format
 
-    wttj_prefix= "dt=2026-03-09/segment=jobs"
-    ft_prefix="dt=2026-03-09"
-    output_prefix="merged"
-    output_format="parquet"
+    #wttj_prefix= "dt=2026-03-09/segment=jobs"
+    #ft_prefix="dt=2026-03-09"
+    #output_prefix="merged"
+    #output_format="parquet"
 
     merge_ft_wttj_datasets(
         ft_prefix=ft_prefix,

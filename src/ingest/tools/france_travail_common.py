@@ -1,7 +1,7 @@
 from src.ingest.clients.france_travail_client import FranceTravailClient
-from src.storage.storage import get_storage_from_env, Storage
-from src.utils.time_helpers import utc_dt_str, utc_run_id, to_iso_z
-from typing import Any, Dict, Iterable, List, Tuple, Optional, Callable
+from src.storage.storage import Storage
+from src.utils.time_helpers import to_iso_z
+from typing import Any, Dict, List, Tuple 
 
 from src.ingest.data_models.bronze_datamodel_class import RomeItem, Window, WindowStat
 import re
