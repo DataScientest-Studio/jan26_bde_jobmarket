@@ -226,10 +226,6 @@ Pipeline overview :
 
 
 """
-
-
-
-
 import argparse
 import io
 import json
@@ -237,8 +233,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, Tuple, Any
+from typing import Dict, Any
 
 # joblib is used to save and load trained ML artifacts (model, vectorizer, label encoder)
 # efficiently, especially for large scikit-learn objects
@@ -253,11 +248,10 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import SGDClassifier
 from scipy.stats import uniform, randint
 
-from src.config.env import require_env, get_project_root, load_project_env
+from src.config.env import load_project_env
+from src.storage.storage import get_storage_from_env
+
 load_project_env()  # safe à rappeler (idempotent)
-
-from src.storage.storage import LocalStorage, S3Storage, get_storage_from_env
-
 logger = logging.getLogger(__name__)
 
 # -----------------------------

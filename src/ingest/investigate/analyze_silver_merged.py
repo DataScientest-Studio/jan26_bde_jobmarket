@@ -1,10 +1,10 @@
 from src.config.env import load_project_env
-load_project_env()  # safe à rappeler (idempotent)
 
 from src.storage.storage import get_storage_from_env
 import src.utils.merge_dataset_utils as merge_dataset_utils
 import logging
 logger = logging.getLogger(__name__)
+load_project_env()  # safe à rappeler (idempotent)
 
 storage_wttj = get_storage_from_env("silver", "merged")
 df = merge_dataset_utils.read_wttj_parquet_file_to_df(storage_wttj,"")

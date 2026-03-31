@@ -389,7 +389,7 @@ def _copy_staging(conn, df: pd.DataFrame, chunk_size: int = 50_000) -> None:
         + ") FROM STDIN WITH (FORMAT CSV, NULL '')"
     )
 
-    total_chunks = (len(df) + chunk_size - 1) // chunk_size
+    #total_chunks = (len(df) + chunk_size - 1) // chunk_size
     with conn.cursor() as cur:
         with cur.copy(copy_sql) as copy:
             with tqdm(total=len(df), unit="rows", desc="COPY staging") as pbar:
@@ -712,14 +712,14 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
         with tqdm(total=len(steps), unit="step", desc=f"Gold load {run_id}") as pbar:
             with psycopg.connect(dsn, autocommit=False) as conn:
 
-                msg = f"Bootstrap schema"
+                msg = "Bootstrap schema"
                 logger.info(msg)
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)  
                 pbar.set_postfix_str()
                 _bootstrap_sql(conn)
                 pbar.update(1)
 
-                msg = f"Clear staging"
+                msg = "Clear staging"
                 logger.info(msg)
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
                 pbar.set_postfix_str("Clear staging")
@@ -727,21 +727,21 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                     cur.execute("DELETE FROM gold.stg_offer WHERE run_id = %s", (run_id,))
                 pbar.update(1)
 
-                msg = f"COPY staging"
+                msg = "COPY staging"
                 logger.info(msg)                    
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
                 pbar.set_postfix_str(msg)
                 _copy_staging(conn, staging_df)
                 pbar.update(1)
 
-                msg = f"Upsert dimensions & fact"
+                msg = "Upsert dimensions & fact"
                 logger.info(msg)
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)    
                 pbar.set_postfix_str(msg)
                 _upsert_dimensions_and_fact(conn, run_id)
                 pbar.update(1)
 
-                msg = f"Count rows"
+                msg = "Count rows"
                 logger.info(msg)
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
                 pbar.set_postfix_str(msg)
@@ -775,7 +775,7 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                     rome_unknown_ratio = float(cur.fetchone()[0] or 0)
                 pbar.update(1)
 
-                msg = f"Commit"
+                msg = "Commit"
                 logger.info(msg)
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
                 pbar.set_postfix_str(msg)
@@ -792,7 +792,7 @@ def run_loader(run_id: Optional[str] = None, source_mode: str = "auto", incremen
                     conn.commit()
 
                 # Purge staging rows for this run.
-                msg = f"Purge staging"
+                msg = "Purge staging"
                 logger.info(msg)
                 log_to_db('load_star_schema', 'INFO', msg, task_id=task_id)
                 pbar.set_postfix_str(msg)

@@ -35,7 +35,6 @@ Installation:
     pip install requests
 """
 
-import argparse
 import gzip
 import logging
 import os
@@ -49,7 +48,6 @@ import requests
 # ─────────────────────────────────────────────
 #  Import project-specific modules
 # ─────────────────────────────────────────────
-from src.utils.time_helpers import utc_run_id, utc_now_iso
 from src.storage.storage import get_storage_from_env
 
 # ─────────────────────────────────────────────
@@ -201,7 +199,7 @@ def collect_sitemap_urls(query="", entreprise="", ville="", max_results=0, delay
 
     return {
         "success": True,
-        "message": f"Ingestion des urls de site map terminée)",
+        "message": "Ingestion des urls de site map terminée",
         "elapsed_s": elapsed,
         "total_processed": len(all_urls),
     }
@@ -214,7 +212,7 @@ def main():
     setup_logging()
     
     logger.info(
-        f"Collecte WTTJ via sitemap XML"
+        "Collecte WTTJ via sitemap XML"
     )
 
     ret = collect_sitemap_urls(

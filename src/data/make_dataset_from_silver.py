@@ -29,15 +29,12 @@ import argparse
 import logging
 import os
 
-import pandas as pd
-
 from src.config.env import load_project_env
-
-load_project_env()  # idempotent — safe to call multiple times
-
 from src.storage.storage import get_storage_from_env
 from src.utils.storage_tools import get_last_dt_from_storage
 
+
+load_project_env()  # idempotent — safe to call multiple times
 logger = logging.getLogger(__name__)
 
 MIN_CLASS_COUNT = int(os.getenv("MIN_CLASS_COUNT", "50"))
