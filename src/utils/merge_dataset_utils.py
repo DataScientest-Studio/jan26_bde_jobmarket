@@ -665,7 +665,7 @@ def print_statistics(df: pd.DataFrame) -> None:
             sample_size = min(3, len(source_df))
             sample_df = source_df.sample(n=sample_size)
 
-            print(f"\n   Source: {source} | {sample_size} random entries")
+            print("\n   Source: {source} | {sample_size} random entries")
             
             # Define field order for readability
             priority_fields = ["id", "source", "title", "rome_code", "rome_label", "contract_type", "url"]
