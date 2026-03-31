@@ -24,13 +24,11 @@ import os
 from src.config.env import load_project_env
 import time
 import threading
-import pandas as pd
 import logging
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
@@ -58,6 +56,12 @@ from src.ingest.gold.load_star_schema import run_loader as run_star_schema_loade
 from src.observability.job_store import JobStore
 from src.utils.log_to_db import log_to_db
 from src.utils.time_helpers import format_eta, utc_run_id
+
+# ------------------------------------
+# Prometheus metrics
+# ------------------------------------
+from prometheus_fastapi_instrumentator import Instrumentator
+from src.utils.prom_metrics import ML_PREDICTIONS_TOTAL, ML_COLD_START_SECONDS, push_pipeline_metrics
 
 # API models
 from src.api.models import (
@@ -138,8 +142,6 @@ Use the endpoints below to test the API directly from this interface.
 # ------------------------------------
 # Prometheus metrics
 # ------------------------------------
-from prometheus_fastapi_instrumentator import Instrumentator
-from src.utils.prom_metrics import ML_PREDICTIONS_TOTAL, ML_COLD_START_SECONDS, push_pipeline_metrics
 Instrumentator().instrument(app).expose(app)
 
 # ------------------------------------
@@ -2492,7 +2494,7 @@ async def collect_sitemaps_endpoint(
                              params={"background": True,
                                      "delay": delay,
                                      "max_results": max_results},
-                            message=f"Collecting WTTJ sitemaps...")
+                            message="Collecting WTTJ sitemaps...")
 
         background_tasks.add_task(run_collect_sitemaps_task, task_id, delay, max_results)
         return CollectSitemapsResponse(success=True, message=f"WTTJ sitemap collection started in background (task_id: {task_id})",
@@ -2595,7 +2597,7 @@ async def ingest_wttj_jobs_optimized_endpoint(
                                      "delay": delay,
                                      "force_download_urls": force_download_urls
                                      },
-                            message=f"Optimized WTTJ ingestion in progress..."
+                            message="Optimized WTTJ ingestion in progress..."
                             )
 
         background_tasks.add_task(run_wttj_job_opt_task,
