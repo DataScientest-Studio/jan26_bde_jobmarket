@@ -43,10 +43,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prépare tag image (lowercase)
+        run: echo "IMAGE_TAG=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/api:${{ github.sha }}" >> $GITHUB_ENV
+
       - name: Build et push image API
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile.api
           push: true
-          tags: ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+          tags: ${{ env.IMAGE_TAG }}
