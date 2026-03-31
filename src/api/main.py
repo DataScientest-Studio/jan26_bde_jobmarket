@@ -21,28 +21,7 @@ Structure:
 # ============================================================
 
 import os
-from src.config.env import require_env, get_project_root, load_project_env
-load_project_env()  # Safe to call multiple times (idempotent)
-
-# Feature flags and environment configuration
-ENABLE_GRAFANA_LOGS = os.getenv("ENABLE_GRAFANA_LOGS", "false").lower() == "true"
-JOBSTORE_DSN = os.getenv("JOBSTORE_DSN")
-STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "15"))
-
-# IP whitelist — liste de CIDRs séparés par virgule, vide = désactivé
-# Ex: API_ALLOWED_NETWORKS=172.16.0.0/12,10.8.0.0/24,127.0.0.1/32
-API_ALLOWED_NETWORKS = os.getenv("API_ALLOWED_NETWORKS", "")
-
-# Task status constants
-STATUS_RUNNING = "RUNNING"
-STATUS_SUCCESS = "SUCCESS"
-STATUS_FAILED = "FAILED"
-
-# Model configuration
-MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
-TOP_K = int(os.getenv("TOP_K", "5"))
-
-import uuid
+from src.config.env import load_project_env
 import time
 import threading
 import pandas as pd
@@ -98,6 +77,27 @@ from src.api.models import (
     StarSchemaLoadResponse,
     JSONOnlyFilter
 )
+
+load_project_env()  # Safe to call multiple times (idempotent)
+
+# Feature flags and environment configuration
+ENABLE_GRAFANA_LOGS = os.getenv("ENABLE_GRAFANA_LOGS", "false").lower() == "true"
+JOBSTORE_DSN = os.getenv("JOBSTORE_DSN")
+STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "15"))
+
+# IP whitelist — liste de CIDRs séparés par virgule, vide = désactivé
+# Ex: API_ALLOWED_NETWORKS=172.16.0.0/12,10.8.0.0/24,127.0.0.1/32
+API_ALLOWED_NETWORKS = os.getenv("API_ALLOWED_NETWORKS", "")
+
+# Task status constants
+STATUS_RUNNING = "RUNNING"
+STATUS_SUCCESS = "SUCCESS"
+STATUS_FAILED = "FAILED"
+
+# Model configuration
+MODEL_NAME = os.getenv("MODEL_NAME", "rome_tfidf")
+TOP_K = int(os.getenv("TOP_K", "5"))
+
 
 # ------------------------------------
 # FastAPI application
