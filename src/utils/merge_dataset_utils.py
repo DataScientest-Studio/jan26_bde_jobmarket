@@ -1,7 +1,4 @@
 from src.config.env import load_project_env
-load_project_env()  # safe à rappeler (idempotent)
-
-from src.storage.storage import get_storage_from_env
 
 import logging
 
@@ -10,6 +7,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+load_project_env()  # safe à rappeler (idempotent)
 logger = logging.getLogger(__name__)
 
 
@@ -282,7 +280,7 @@ def normalize_salary(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         The same DataFrame with the 7 salary columns populated.
     """
-    logger.info(f"✅ Start normalize_salary")
+    logger.info("✅ Start normalize_salary")
 
     #   SALARY_ZERO_AS_INDETERMINATE  (default true)  : salary_min == 0  → yearly = None
     #   SALARY_YEARLY_MAX (default 150_000)            : yearly_min > threshold → yearly = None
@@ -461,18 +459,18 @@ def print_statistics(df: pd.DataFrame) -> None:
     print("=" * 80)
     
     # Global
-    print(f"\n📈 GLOBAL STATISTICS")
+    print("\n📈 GLOBAL STATISTICS")
     print(f"   Total offers: {len(df):,}")
     
     # By source
     source_counts = df['source'].value_counts()
-    print(f"\n📦 DISTRIBUTION BY SOURCE")
+    print("\n📦 DISTRIBUTION BY SOURCE")
     for source, count in source_counts.items():
         pct = count / len(df) * 100
         print(f"   {source}: {count:,} offers ({pct:.1f}%)")
 
     # Global indicator: % offers with ROME code by source
-    print(f"\n📌 ROME COVERAGE BY SOURCE")
+    print("\n📌 ROME COVERAGE BY SOURCE")
     for source, count in source_counts.items():
         source_df = df[df['source'] == source]
         rome_count = source_df['rome_code'].notna() & (source_df['rome_code'] != '')
@@ -482,12 +480,12 @@ def print_statistics(df: pd.DataFrame) -> None:
     
     # ROME codes
     rome_stats = df[df['rome_code'].notna() & (df['rome_code'] != '')]
-    print(f"\n🎯 ROME CODES")
+    print("\n🎯 ROME CODES")
     print(f"   Offers with ROME: {len(rome_stats):,} ({len(rome_stats)/len(df)*100:.1f}%)")
     print(f"   Unique ROME codes: {df['rome_code'].nunique()}")
     
     # Top 10 ROME codes
-    print(f"\n🏆 TOP 10 ROME CODES")
+    print("\n🏆 TOP 10 ROME CODES")
     top_rome = df['rome_code'].value_counts().head(10)
     for rome, count in top_rome.items():
         pct = count / len(df) * 100
@@ -498,7 +496,7 @@ def print_statistics(df: pd.DataFrame) -> None:
         print(f"   {rome}: {count:,} ({pct:.1f}%) - {label}")
 
     # ROME codes by source with label/description
-    print(f"\n🧭 ROME CODES BY SOURCE")
+    print("\n🧭 ROME CODES BY SOURCE")
     if 'source' in df.columns and 'rome_code' in df.columns:
         rome_by_source_df = df[
             df['source'].notna()
@@ -530,35 +528,35 @@ def print_statistics(df: pd.DataFrame) -> None:
     
     # Distribution of ROME codes
     rome_counts = df['rome_code'].value_counts()
-    print(f"\n📊 DISTRIBUTION OF ROME CODES")
+    print("\n📊 DISTRIBUTION OF ROME CODES")
     print(f"   Codes with >1000 offers: {(rome_counts > 1000).sum()}")
     print(f"   Codes with 100-1000 offers: {((rome_counts >= 100) & (rome_counts <= 1000)).sum()}")
     print(f"   Codes with 50-100 offers: {((rome_counts >= 50) & (rome_counts < 100)).sum()}")
     print(f"   Codes with <50 offers: {(rome_counts < 50).sum()}")
     
     # Contract types
-    print(f"\n📝 CONTRACT TYPES")
+    print("\n📝 CONTRACT TYPES")
     contract_counts = df['contract_type'].value_counts().head(5)
     for contract, count in contract_counts.items():
         pct = count / len(df) * 100
         print(f"   {contract}: {count:,} ({pct:.1f}%)")
 
     # Contract types normalized
-    print(f"\n📝 CONTRACT TYPES NORMALIZED")
+    print("\n📝 CONTRACT TYPES NORMALIZED")
     contract_counts = df['contract_normalized'].value_counts().head(5)
     for contract, count in contract_counts.items():
         pct = count / len(df) * 100
         print(f"   {contract}: {count:,} ({pct:.1f}%)")
 
     # Experience levels
-    print(f"\n💼 EXPERIENCE LEVELS")
+    print("\n💼 EXPERIENCE LEVELS")
     exp_counts = df['experience_level'].value_counts().head(5)
     for exp, count in exp_counts.items():
         pct = count / len(df) * 100
         print(f"   {exp}: {count:,} ({pct:.1f}%)")
     
     # Experience levels
-    print(f"\n💼 EXPERIENCE LEVELS NORMALIZED ")
+    print("\n💼 EXPERIENCE LEVELS NORMALIZED ")
     exp_counts = df['experience_normalized'].value_counts().head(5)
     for exp, count in exp_counts.items():
         pct = count / len(df) * 100
@@ -566,11 +564,11 @@ def print_statistics(df: pd.DataFrame) -> None:
 
     # Existing skills
     skills = df['skills'].apply(lambda x: len(x) > 0 if isinstance(x, list) else False).sum()
-    print(f"\n🎓 SKILLS")
+    print("\n🎓 SKILLS")
     print(f"   Offers with skills: {skills:,} ({skills/len(df)*100:.1f}%)")
     
     # Data quality
-    print(f"\n✅ DATA QUALITY")
+    print("\n✅ DATA QUALITY")
     
     def _calculate_fill_rate(series) -> tuple:
         """Calculate fill rate for a column (handles str, list, numeric types)"""

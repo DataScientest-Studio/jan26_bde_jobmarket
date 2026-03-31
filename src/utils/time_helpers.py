@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 def utc_dt_str() -> str:
     """ Return current date in UTC as a string in YYYY-MM-DD format, suitable for partitioning. """

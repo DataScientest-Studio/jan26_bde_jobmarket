@@ -9,7 +9,6 @@ import requests
 import logging
 from typing import Optional
 import json
-import os
 
 load_project_env()  # safe à rappeler (idempotent)
 logger = logging.getLogger(__name__)

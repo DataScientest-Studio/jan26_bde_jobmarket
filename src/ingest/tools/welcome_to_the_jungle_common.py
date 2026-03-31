@@ -20,7 +20,7 @@ import src.ingest.tools.rate_limiter as RateLimiter
 
 # Data models
 from src.ingest.data_models.bronze_datamodel_class import wtt_bronze_datamodels
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor 
 import threading
 
 logger = logging.getLogger("wttj.ingest.bronze")

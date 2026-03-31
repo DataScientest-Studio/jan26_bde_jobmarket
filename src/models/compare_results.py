@@ -4,14 +4,12 @@ Usage: python -m src.models.compare_results
 """
 
 import json
-from pathlib import Path
 from typing import Dict, Any
-import os
 
 from src.config.env import load_project_env
-load_project_env()
-
 from src.storage.storage import get_storage_from_env
+
+load_project_env()
 
 def load_metrics(storage, version: str) -> Dict[str, Any]:
     """Load metrics.json for a given model version"""

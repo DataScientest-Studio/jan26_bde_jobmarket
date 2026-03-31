@@ -6,8 +6,7 @@ It uses psycopg for database interactions, but degrades gracefully if psycopg is
 """
 import os
 import logging
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Optional
 
 # Graceful degradation
 # If psycopg is not installed, 

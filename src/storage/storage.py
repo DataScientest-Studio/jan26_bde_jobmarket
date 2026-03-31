@@ -2,7 +2,6 @@ import json
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from pydoc import html
 from typing import Any, Dict, Iterable, Optional
 import io
 # For pandas DataFrame type hint
@@ -11,7 +10,6 @@ import pyarrow
 import pyarrow.parquet as pq
 
 import gzip
-from typing import Union
 
 try:
     import orjson  # 10x faster JSON parser
@@ -21,7 +19,6 @@ except ImportError:
 
 import boto3
 from botocore.config import Config
-from pyparsing import line
 import html
 
 class StorageError(RuntimeError):
@@ -429,15 +426,14 @@ class S3Storage(Storage):
                         line = line_bytes.decode('utf-8', errors='replace').strip()
                         clean_line = html.unescape(line)
                         yield json.loads(clean_line)
-                except Exception as e:
+                except Exception:
                     # Catch any JSON decode error (orjson or standard json)
                     # Log only first 100 chars to avoid spam
                     try:
                         preview = line_bytes[:100].decode('utf-8', errors='replace')
-                    except:
+                    except Exception:
                         preview = str(line_bytes[:100])
-                    # Silence errors in production, uncomment for debugging:
-                    # print(f"⚠️ JSON decode error in {key}: {preview}...")
+                    print(f"⚠️ JSON decode error in {key}: {preview}...")
                     continue
         return gen()
 
