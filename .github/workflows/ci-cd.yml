@@ -7,7 +7,7 @@ on:
     branches: [master]     # Tests sur les PRs vers master
 
 jobs:
-  # - Job 1 : Tests 
+  # - Job 1 : Tests
   # Lint + vérification des imports + tests unitaires
   # Tourne sur toutes les branches à chaque push
   test:
@@ -41,8 +41,9 @@ jobs:
         env:
           PYTHONPATH: .
 
-  # - Job 2 : Build & Push image Docker 
-  # Construit l'image API et la pousse sur GHCR (GitHub Container Registry)
+  # - Job 2 : Build & Push images Docker
+  # Construit les images custom et les pousse sur GHCR (GitHub Container Registry)
+  # Utilise une matrix strategy pour builder les 3 services en parallèle
   # Déclenché uniquement sur master, après que les tests passent
   build-push:
     needs: test
@@ -51,6 +52,19 @@ jobs:
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      matrix:
+        service:
+          - name: api
+            dockerfile: Dockerfile.api
+            context: .
+          - name: airflow
+            dockerfile: Dockerfile.airflow
+            context: .
+          - name: streamlit
+            dockerfile: streamlit/Dockerfile
+            context: ./streamlit
 
     steps:
       - name: Checkout du code
@@ -67,15 +81,15 @@ jobs:
       - name: Prépare tag image (lowercase)
         run: |
           REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE_BASE=ghcr.io/${REPO}/api" >> $GITHUB_ENV
-          echo "IMAGE_TAG=ghcr.io/${REPO}/api:${{ github.sha }}" >> $GITHUB_ENV
+          echo "IMAGE_BASE=ghcr.io/${REPO}/${{ matrix.service.name }}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=ghcr.io/${REPO}/${{ matrix.service.name }}:${{ github.sha }}" >> $GITHUB_ENV
 
       # Deux tags : SHA (traçabilité) + latest (image courante)
-      - name: Build et push image API
+      - name: Build et push ${{ matrix.service.name }}
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: Dockerfile.api
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
           push: true
           tags: |
             ${{ env.IMAGE_TAG }}
@@ -83,10 +97,10 @@ jobs:
 
       # Supprime les anciennes versions, garde les 2 dernières + latest
       # Évite l'accumulation d'images et les dépassements du quota gratuit
-      - name: Purge anciennes images GHCR
+      - name: Purge anciennes images GHCR (${{ matrix.service.name }})
         uses: actions/delete-package-versions@v5
         with:
-          package-name: jan26_bde_jobmarket/api
+          package-name: jan26_bde_jobmarket/${{ matrix.service.name }}
           package-type: container
           min-versions-to-keep: 2
           ignore-versions: latest
