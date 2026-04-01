@@ -60,8 +60,12 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     border-radius: 12px;
     padding: 1.4rem 1.6rem;
     position: relative;
-    overflow: hidden;
+    height: 118px;
+    box-sizing: border-box;
+    overflow: visible;
     transition: border-color 0.2s;
+    display: flex;
+    flex-direction: column;
 }
 .kpi-card:hover { border-color: #3a3a44; }
 .kpi-accent {
@@ -76,7 +80,7 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: #5a5a64;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.55rem;
 }
 .kpi-value {
     font-family: 'DM Serif Display', serif;
@@ -87,8 +91,9 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 }
 .kpi-sub {
     font-size: 0.78rem;
-    color: #4a4a52;
+    color: #6b6a66;
     font-weight: 300;
+    margin-top: auto;
 }
 
 /* Section headers */
@@ -105,13 +110,9 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 /* Cacher uniquement le contenu indésirable, PAS le header entier */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-/* Cacher le bouton "Deploy", le menu burger, etc. dans le header — mais pas le header lui-même */
-header [data-testid="stToolbar"] { visibility: hidden; }
+/* Ne pas masquer la toolbar : elle contient aussi le contrôle de sidebar (chevron). */
 header [data-testid="stDecoration"] { display: none; }
 .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-
-    /* Chevron masqué — la sidebar reste redimensionnable par glisser le bord */
-[data-testid=""] { display: none !important; }
 </style>
 
 """

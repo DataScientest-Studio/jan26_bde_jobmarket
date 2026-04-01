@@ -3,15 +3,58 @@ Tab 3 — Salaires
 """
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
 
 from utils.queries import (
     load_salaires_distrib,
     load_salaires_par_contrat,
     load_salaires_par_rome,
-    load_salaires_par_region,
+    load_nb_offres_salaire_renseigne,
 )
-from utils.helpers import kpi_card, base_layout, fmt_euro
+from utils.helpers import kpi_card, base_layout, fmt_euro, fmt_number
 from config import GOLD, TEAL, CORAL, PURPLE, DARK_BG, GRID_COL, TEXT_COL
+
+
+def _add_candles(fig: go.Figure, df: pd.DataFrame, y_col: str, xaxis: str = "x2") -> go.Figure:
+    has_sal = all(c in df.columns for c in ("salaire_min", "salaire_p25", "salaire_moyen", "salaire_p75", "salaire_max"))
+    if not has_sal:
+        return fig
+
+    d = df[df["salaire_moyen"].notna()]
+
+    for _, row in d.iterrows():
+        fig.add_trace(go.Scatter(
+            x=[row["salaire_min"], row["salaire_max"]],
+            y=[row[y_col], row[y_col]],
+            mode="lines",
+            line=dict(color="rgba(212,168,75,0.40)", width=0.8),
+            xaxis=xaxis,
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    fig.add_trace(go.Bar(
+        x=d["salaire_p75"] - d["salaire_p25"],
+        y=d[y_col],
+        orientation="h",
+        base=d["salaire_p25"],
+        marker=dict(color="rgba(212,168,75,0.45)", line=dict(color="#d4a84b", width=0.8)),
+        xaxis=xaxis,
+        name="Sal. p25–p75",
+        customdata=d["salaire_p75"],
+        hovertemplate="<b>%{y}</b><br>p25 : %{base:,.0f} €<br>p75 : %{customdata:,.0f} €<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=d["salaire_moyen"],
+        y=d[y_col],
+        mode="markers",
+        marker=dict(color="#d4a84b", size=6, symbol="diamond"),
+        xaxis=xaxis,
+        name="Sal. moyen",
+        hovertemplate="<b>%{y}</b><br>Sal. moyen : %{x:,.0f} €<extra></extra>",
+    ))
+    return fig
 
 
 def render(filters_key: str):
@@ -19,7 +62,16 @@ def render(filters_key: str):
         df_distrib  = load_salaires_distrib(filters_key)
         df_sal_ct   = load_salaires_par_contrat(filters_key)
         df_sal_rome = load_salaires_par_rome(filters_key)
-        df_sal_reg  = load_salaires_par_region(filters_key)
+        nb_offres_salaire_df = load_nb_offres_salaire_renseigne(filters_key)
+        nb_offres_salaire = (
+            int(nb_offres_salaire_df.iloc[0]["nb_offres_salaire_renseigne"])
+            if nb_offres_salaire_df is not None and not nb_offres_salaire_df.empty
+            else 0
+        )
+
+    tri_mode = st.session_state.get("tri_offres_vs_salaire", "Nombre d'offres")
+
+
 
     # ── KPIs salaires ──────────────────────────────────────────────────────
     if not df_distrib.empty:
@@ -37,6 +89,18 @@ def render(filters_key: str):
             st.markdown(kpi_card("1er quartile (P25)",  fmt_euro(p25_sal),    "25% des offres en dessous", CORAL),  unsafe_allow_html=True)
         with c4:
             st.markdown(kpi_card("3ème quartile (P75)", fmt_euro(p75_sal),    "75% des offres en dessous", PURPLE), unsafe_allow_html=True)
+
+    # ── KPI volume d'offres avec salaire renseigné ────────────────────────
+    st.markdown("<div style='margin-top:1rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        kpi_card(
+            "Offres avec salaire renseigné",
+            fmt_number(nb_offres_salaire),
+            "min/max calculés",
+            TEAL,
+        ),
+        unsafe_allow_html=True,
+    )
 
     # ── Distribution ───────────────────────────────────────────────────────
     st.markdown('<div class="section-title">Distribution des salaires</div>', unsafe_allow_html=True)
@@ -82,8 +146,9 @@ def render(filters_key: str):
             x=df_sal_ct["contract_type"],
             y=df_sal_ct["p75"] - df_sal_ct["p25"],
             base=df_sal_ct["p25"],
+            customdata=df_sal_ct["p75"],
             marker=dict(color="rgba(74,157,143,0.3)", line=dict(color=TEAL, width=1)),
-            hovertemplate="<b>%{x}</b><br>P25: %{base:,.0f} €<br>P75: %{top:,.0f} €<extra></extra>",
+            hovertemplate="<b>%{x}</b><br>P25: %{base:,.0f} €<br>P75: %{customdata:,.0f} €<extra></extra>",
         ))
         fig_ct_sal.add_trace(go.Scatter(
             name="Moyenne",
@@ -97,53 +162,44 @@ def render(filters_key: str):
         fig_ct_sal.update_yaxes(tickformat=",.0f", title_text="€ / an")
         st.plotly_chart(fig_ct_sal, use_container_width=True)
 
-    # ── Salaires par région ────────────────────────────────────────────────
-    st.markdown('<div class="section-title">Salaires par région</div>', unsafe_allow_html=True)
-
-    if not df_sal_reg.empty:
-        fig_reg_sal = go.Figure()
-        fig_reg_sal.add_trace(go.Bar(
-            name="Salaire moyen",
-            x=df_sal_reg["salaire_moyen"],
-            y=df_sal_reg["nom_region"],
-            orientation="h",
-            marker=dict(
-                color=df_sal_reg["salaire_moyen"],
-                colorscale=[[0, "#1a2010"], [0.5, TEAL], [1, GOLD]],
-                showscale=True,
-                colorbar=dict(
-                    tickformat=",.0f",
-                    ticksuffix=" €",
-                    bgcolor=DARK_BG,
-                    tickfont=dict(color=TEXT_COL),
-                    outlinecolor=GRID_COL,
-                ),
-            ),
-            hovertemplate="<b>%{y}</b><br>Moy: %{x:,.0f} €<br>Médiane: %{customdata:,.0f} €<extra></extra>",
-            customdata=df_sal_reg["mediane"],
-        ))
-        fig_reg_sal.update_layout(**base_layout("Salaire moyen annuel par région"), height=480)
-        fig_reg_sal.update_yaxes(autorange="reversed")
-        fig_reg_sal.update_xaxes(tickformat=",.0f", title_text="€ brut / an")
-        st.plotly_chart(fig_reg_sal, use_container_width=True)
-
     # ── Top ROME par salaire ───────────────────────────────────────────────
     st.markdown('<div class="section-title">Top 20 métiers (ROME) par salaire moyen</div>', unsafe_allow_html=True)
-
     if not df_sal_rome.empty:
+        if tri_mode == "Salaire moyen":
+            df_sal_rome = df_sal_rome.sort_values(["salaire_moyen", "nb_offres"], ascending=[False, False])
+        else:
+            df_sal_rome = df_sal_rome.sort_values(["nb_offres", "salaire_moyen"], ascending=[False, False])
+        df_sal_rome = df_sal_rome.head(20)
+
         fig_rome = go.Figure(go.Bar(
-            x=df_sal_rome["salaire_moyen"],
+            x=df_sal_rome["nb_offres"],
             y=df_sal_rome["rome_label"],
             orientation="h",
             marker=dict(
-                color=df_sal_rome["salaire_moyen"],
-                colorscale=[[0, "#1a1510"], [1, CORAL]],
+                color=df_sal_rome["nb_offres"],
+                colorscale=[[0, "#423528"], [1, PURPLE]],
                 showscale=False,
             ),
-            customdata=df_sal_rome[["nb_offres", "rome_code"]],
-            hovertemplate="<b>%{y}</b><br>%{x:,.0f} €/an<br>%{customdata[0]} offres · %{customdata[1]}<extra></extra>",
+            customdata=df_sal_rome[["salaire_moyen", "rome_code"]],
+            hovertemplate="<b>%{y}</b><br>%{x:,} offres<br>%{customdata[0]:,.0f} €/an · %{customdata[1]}<extra></extra>",
         ))
-        fig_rome.update_layout(**base_layout("Top 20 codes ROME — salaire moyen annuel"), height=560)
+        fig_rome = _add_candles(fig_rome, df_sal_rome, y_col="rome_label", xaxis="x2")
+        layout_rome = base_layout("Top 20 codes ROME — volume et bougies salariales")
+        layout_rome.update(
+            height=560,
+            barmode="overlay",
+            xaxis=dict(
+                title="Nb offres",
+                gridcolor=layout_rome["xaxis"]["gridcolor"],
+                linecolor=layout_rome["xaxis"]["linecolor"],
+            ),
+            xaxis2=dict(
+                title="Salaire annuel (€)",
+                overlaying="x",
+                side="top",
+                showgrid=False,
+            ),
+        )
+        fig_rome.update_layout(**layout_rome)
         fig_rome.update_yaxes(autorange="reversed", tickfont=dict(size=11))
-        fig_rome.update_xaxes(tickformat=",.0f", title_text="€ brut / an")
         st.plotly_chart(fig_rome, use_container_width=True)
