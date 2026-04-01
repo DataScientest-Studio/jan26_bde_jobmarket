@@ -7,10 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev gcc curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Context racine requis pour accéder à src/ (module partagé hors du dossier streamlit)
+COPY streamlit/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Bake in le code streamlit et le module src partagé
+COPY streamlit/ .
+COPY src/ ./src/
 
 EXPOSE 8501
 

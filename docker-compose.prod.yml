@@ -198,7 +198,7 @@ services:
       airflow connections delete jobmarket_api 2>/dev/null; airflow connections add jobmarket_api --conn-type http --conn-host jobmarket-api --conn-port 8000 &&
       airflow standalone"
 
-  # Image custom — src baked dans l'image (streamlit/Dockerfile)
+  # Image custom — src baked dans l'image (Dockerfile.streamlit.prod)
   jobmarket-streamlit:
     cpus: "1"
     mem_limit: 1g

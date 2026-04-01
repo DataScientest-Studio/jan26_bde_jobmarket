@@ -68,8 +68,8 @@ jobs:
             dockerfile: Dockerfile.airflow.prod
             context: .
           - name: streamlit
-            dockerfile: streamlit/Dockerfile
-            context: ./streamlit
+            dockerfile: Dockerfile.streamlit.prod
+            context: .
           - name: postgres
             dockerfile: Dockerfile.postgres.prod
             context: .
