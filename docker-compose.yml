@@ -255,7 +255,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.streamlit
-      dockerfile: Dockerfile
     container_name: jobmarket-streamlit
     restart: unless-stopped
     networks:
