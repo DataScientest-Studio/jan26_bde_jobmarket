@@ -253,7 +253,8 @@ services:
     mem_limit: 1g
     memswap_limit: 2g
     build:
-      context: ./streamlit
+      context: .
+      dockerfile: Dockerfile.streamlit
       dockerfile: Dockerfile
     container_name: jobmarket-streamlit
     restart: unless-stopped
