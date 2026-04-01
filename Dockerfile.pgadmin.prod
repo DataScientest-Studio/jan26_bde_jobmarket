@@ -1,0 +1,5 @@
+FROM dpage/pgadmin4:latest
+
+# Bake in la configuration des serveurs et les requêtes sauvegardées — pas de bind mount en prod
+COPY pgadmin/servers.json /pgadmin4/servers.json
+COPY pgadmin/queries /var/lib/pgadmin/storage/willramarques_gmail.com

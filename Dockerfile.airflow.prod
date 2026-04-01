@@ -1,0 +1,38 @@
+FROM apache/airflow:slim-latest
+
+# Récupère la version Airflow et Python de l'image de base pour télécharger
+# le fichier de contraintes officiel — garantit la compatibilité des providers
+# avec la version exacte d'Airflow installée (évite les conflits d'entry_points).
+RUN AIRFLOW_VERSION=$(python -c "import airflow; print(airflow.__version__)") && \
+    PYTHON_VERSION=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')") && \
+    pip install --no-cache-dir \
+        --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt" \
+        psycopg2-binary asyncpg apache-airflow-providers-http
+
+# Dépendances ML du projet — requirements.txt complet exclu car fastapi du projet
+# entre en conflit avec la version interne utilisée par Airflow (cadwyn).
+RUN pip install --no-cache-dir \
+    joblib \
+    numpy \
+    pandas \
+    pyarrow \
+    scikit-learn \
+    scipy \
+    python-dotenv \
+    load-dotenv \
+    boto3 \
+    s3fs \
+    fsspec \
+    tqdm \
+    pyparsing \
+    beautifulsoup4 \
+    lxml \
+    matplotlib \
+    termcolor \
+    tzdata
+
+# Bake in source code and DAGs — pas de bind mount en prod
+USER root
+COPY --chown=50000:0 src /opt/airflow/src
+COPY --chown=50000:0 dags /opt/airflow/dags
+USER airflow

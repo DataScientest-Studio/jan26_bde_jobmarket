@@ -1,0 +1,5 @@
+FROM grafana/grafana:10.2.3
+
+# Bake in les dashboards et la configuration de provisioning — pas de bind mount en prod
+COPY grafana/provisioning /etc/grafana/provisioning
+COPY grafana/dashboards /var/lib/grafana/dashboards
