@@ -3,7 +3,7 @@
     "1": {
       "Name": "JobMarket Local",
       "Group": "JobMarket",
-      "Host": "postgres",
+      "Host": "jobmarket-postgres",
       "Port": 5432,
       "MaintenanceDB": "jobdb",
       "Username": "jobuser",

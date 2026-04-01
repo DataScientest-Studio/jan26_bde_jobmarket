@@ -1,5 +1,8 @@
 FROM dpage/pgadmin4:latest
 
 # Bake in la configuration des serveurs et les requêtes sauvegardées — pas de bind mount en prod
-COPY pgadmin/servers.json /pgadmin4/servers.json
+# servers.json contient des credentials — non commité (.gitignore)
+# On utilise servers.json.example (sans credentials sensibles) pour préconfigurer le serveur
+# Le mot de passe sera saisi manuellement à la première connexion dans pgadmin
+COPY pgadmin/servers.json.example /pgadmin4/servers.json
 COPY pgadmin/queries /var/lib/pgadmin/storage/willramarques_gmail.com
