@@ -43,8 +43,13 @@ jobs:
 
   # - Job 2 : Build & Push images Docker
   # Construit les images custom et les pousse sur GHCR (GitHub Container Registry)
-  # Utilise une matrix strategy pour builder les 3 services en parallèle
+  # Utilise une matrix strategy pour builder tous les services en parallèle
   # Déclenché uniquement sur master, après que les tests passent
+  #
+  # Services avec Dockerfile dédié prod (configs baked dans l'image) :
+  #   postgres, grafana, pgadmin, prometheus
+  # Services avec code source baked :
+  #   api, airflow, streamlit
   build-push:
     needs: test
     if: github.ref == 'refs/heads/master'
@@ -60,11 +65,23 @@ jobs:
             dockerfile: Dockerfile.api
             context: .
           - name: airflow
-            dockerfile: Dockerfile.airflow
+            dockerfile: Dockerfile.airflow.prod
             context: .
           - name: streamlit
             dockerfile: streamlit/Dockerfile
             context: ./streamlit
+          - name: postgres
+            dockerfile: Dockerfile.postgres.prod
+            context: .
+          - name: grafana
+            dockerfile: Dockerfile.grafana.prod
+            context: .
+          - name: pgadmin
+            dockerfile: Dockerfile.pgadmin.prod
+            context: .
+          - name: prometheus
+            dockerfile: Dockerfile.prometheus.prod
+            context: .
 
     steps:
       - name: Checkout du code

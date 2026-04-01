@@ -1,0 +1,4 @@
+FROM postgres:15
+
+# Bake in les scripts d'initialisation — pas de bind mount en prod
+COPY postgres/init /docker-entrypoint-initdb.d/
