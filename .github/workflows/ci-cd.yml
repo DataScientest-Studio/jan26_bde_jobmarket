@@ -1,0 +1,92 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["**"]       # Tests sur toutes les branches
+  pull_request:
+    branches: [master]     # Tests sur les PRs vers master
+
+jobs:
+  # - Job 1 : Tests 
+  # Lint + vérification des imports + tests unitaires
+  # Tourne sur toutes les branches à chaque push
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Installation de Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Installation des dépendances
+        run: pip install -r requirements.txt ruff pytest httpx
+
+      # Ruff remplace flake8 : linter Rust ~100x plus rapide, supporte 700+ règles
+      # (flake8, isort, pyupgrade, bandit...) et propose l'auto-fix (--fix)
+      - name: Lint
+        run: ruff check src/
+
+      - name: Vérification des imports
+        run: python -c "from src.api.main import app; print('Import OK')"
+        env:
+          PYTHONPATH: .
+
+      - name: Tests unitaires
+        run: pytest test/ -v
+        env:
+          PYTHONPATH: .
+
+  # - Job 2 : Build & Push image Docker 
+  # Construit l'image API et la pousse sur GHCR (GitHub Container Registry)
+  # Déclenché uniquement sur master, après que les tests passent
+  build-push:
+    needs: test
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # github.repository peut contenir des majuscules — Docker exige du lowercase
+      - name: Prépare tag image (lowercase)
+        run: |
+          REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_BASE=ghcr.io/${REPO}/api" >> $GITHUB_ENV
+          echo "IMAGE_TAG=ghcr.io/${REPO}/api:${{ github.sha }}" >> $GITHUB_ENV
+
+      # Deux tags : SHA (traçabilité) + latest (image courante)
+      - name: Build et push image API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.api
+          push: true
+          tags: |
+            ${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_BASE }}:latest
+
+      # Supprime les anciennes versions, garde les 2 dernières + latest
+      # Évite l'accumulation d'images et les dépassements du quota gratuit
+      - name: Purge anciennes images GHCR
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: jan26_bde_jobmarket/api
+          package-type: container
+          min-versions-to-keep: 2
+          ignore-versions: latest
