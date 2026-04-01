@@ -1,10 +1,11 @@
 # .github/workflows/clean-outputs.yml
 name: Clean Jupyter Outputs
-on: 
-  push: 
+on:
+  push:
     paths: ['**/*.ipynb']
   pull_request:
     paths: ['**/*.ipynb']
+  workflow_dispatch:  # Permet de déclencher manuellement depuis GitHub Actions
 
 jobs:
   clean:
