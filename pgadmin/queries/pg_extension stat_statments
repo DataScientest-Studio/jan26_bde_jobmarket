@@ -1,0 +1,36 @@
+--CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Active preload au chargement
+--ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
+
+-- Redemarrrer le postgres puis vérifier 
+-- SHOW shared_preload_libraries;
+
+-- Créeer l'extention
+-- CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Vérifier si extension existante (vide si inexistante)
+-- SELECT extname FROM pg_extension WHERE extname = 'pg_stat_statements';
+-- SELECT count(*) FROM pg_stat_statements;
+
+--- Force les plans reel et pas les place holder
+-- SET plan_cache_mode = force_custom_plan;
+
+-- Remise à zéro
+-- SELECT pg_stat_statements_reset();
+--
+-- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS)
+-- puis la requête
+
+-- Stats 
+SELECT
+  calls,
+  round(total_exec_time::numeric, 1) AS total_ms,
+  round(mean_exec_time::numeric, 2) AS mean_ms,
+  rows,
+  query
+FROM pg_stat_statements
+WHERE query ILIKE '%fact_offre_emploi%'
+ORDER BY total_exec_time DESC
+LIMIT 30;
+ 
