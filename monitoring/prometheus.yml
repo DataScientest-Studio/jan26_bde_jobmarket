@@ -26,3 +26,8 @@ scrape_configs:
     honor_labels: true
     static_configs:
       - targets: ['jobmarket-pushgateway:9091']
+
+  - job_name: server_monitor
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["172.23.0.1:9100"]
